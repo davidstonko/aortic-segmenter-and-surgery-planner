@@ -37,8 +37,23 @@ Further live-verified polish this session:
   now consistent with the single-view canvas. Overlays live on the image, so
   their contrast is unchanged (verified: mask overlay renders clearly).
 
-Remaining structural items (armed-tool highlight, per-step default view) are
-candidates for the next pass.
+- **Armed-tool highlight.** The exclusive measure/draw tools now paint the
+  same active-blue as the current view when armed (`refreshToolButtonColors`),
+  so "what is armed" is always obvious.
+- **Mode-aware Segment-step view.** Step 2 forced the 3-D recon on entry —
+  wrong for User-driven segmentation (needs an axial slice for lumen clicks).
+  Now: Automatic → 3-D recon, User-driven → axial.
+- **Toolbar group dividers.** Thin rules between functional clusters keep the
+  now-uniform toolbar scannable (views | dropdowns; input-tools | Clear |
+  Crosshair; display | project | info).
+- **Full-workflow verification.** Drove all six steps on the phantom (mask +
+  seeds + centerlines injected) — Steps 3–6 overlays (centerlines, seed
+  markers, bifurcation) and panels all render correctly on the dark theme;
+  Step 5 computed correct EVAR sizing from the injected data. No regressions.
+
+The GUI now reads as a clinical imaging workstation (dark viewport, calm
+neutral toolbar with dividers, clear active-state) rather than a stock
+MATLAB app.
 
 ## 2026-07-11 — Public v1 on GitHub + CI + measurement reproducibility
 
