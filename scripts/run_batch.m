@@ -131,7 +131,7 @@ end
 function s = empty_result_struct(n)
     s = repmat(struct( ...
         'case_name', '', 'dicom_dir', '', 'status', 'pending', ...
-        'audit_passed', NaN, ...
+        'audit_passed', NaN, 'qc_usable', NaN, ...
         'neck_dia_mm', NaN, 'neck_len_mm', NaN, 'neck_ang_deg', NaN, ...
         'iliac_R_dia_mm', NaN, 'iliac_L_dia_mm', NaN, ...
         'arc_R_mm', NaN, 'arc_L_mm', NaN, ...
@@ -140,42 +140,24 @@ function s = empty_result_struct(n)
 end
 
 function r = populate_from_output(r, out)
-    if isfield(out, 'audit') && isfield(out.audit, 'passed')
-        r.audit_passed = out.audit.passed;
-    end
-    if isfield(out, 'plan') && isstruct(out.plan)
-        p = out.plan;
-        r.neck_dia_mm   = field_or_nan(p, 'neck_dia_mm');
-        r.neck_len_mm   = field_or_nan(p, 'neck_len_mm');
-        r.neck_ang_deg  = field_or_nan(p, 'neck_ang_deg');
-        r.iliac_R_dia_mm = field_or_nan(p, 'iliac_R_dia_mm');
-        r.iliac_L_dia_mm = field_or_nan(p, 'iliac_L_dia_mm');
-        if isfield(p, 'ranked_devices')
-            elig = {};
-            for k = 1:numel(p.ranked_devices)
-                d = p.ranked_devices(k);
-                if isfield(d, 'eligibility') && d.eligibility.eligible
-                    elig{end+1} = d.name; %#ok<AGROW>
-                end
-            end
-            r.eligible_devices = elig;
-        end
-    end
-    if isfield(out, 'Pv_mm_right'); r.arc_R_mm = arc_length(out.Pv_mm_right); end
-    if isfield(out, 'Pv_mm_left');  r.arc_L_mm = arc_length(out.Pv_mm_left);  end
+    % Derive the summary scalars via the shared, unit-tested mapping
+    % (reads out.plan.measurements.* — a bare out.plan.neck_dia_mm does not
+    % exist, which is why this column used to be NaN for every case).
+    row = evar_plan.batch_summary_row(out);
+    r.audit_passed    = row.audit_passed;
+    r.qc_usable       = row.qc_usable;
+    r.neck_dia_mm     = row.neck_dia_mm;
+    r.neck_len_mm     = row.neck_len_mm;
+    r.neck_ang_deg    = row.neck_ang_deg;
+    r.iliac_R_dia_mm  = row.iliac_R_dia_mm;
+    r.iliac_L_dia_mm  = row.iliac_L_dia_mm;
+    r.arc_R_mm        = row.arc_R_mm;
+    r.arc_L_mm        = row.arc_L_mm;
+    r.eligible_devices = row.eligible_devices;
 end
 
 function s = sanitize(s)
     s = regexprep(s, '[^A-Za-z0-9._-]', '_');
-end
-
-function v = field_or_nan(s, f)
-    if isfield(s, f); v = s.(f); else; v = NaN; end
-end
-
-function a = arc_length(P)
-    if size(P, 1) < 2; a = NaN; return; end
-    a = sum(vecnorm(diff(P, 1, 1), 2, 2));
 end
 
 function write_summary_csv(results, path)
@@ -185,7 +167,7 @@ function write_summary_csv(results, path)
         return;
     end
     cleanup = onCleanup(@() fclose(fid));
-    fprintf(fid, ['case_name,status,audit_passed,runtime_s,', ...
+    fprintf(fid, ['case_name,status,audit_passed,qc_usable,runtime_s,', ...
                   'neck_dia_mm,neck_len_mm,neck_ang_deg,', ...
                   'iliac_R_dia_mm,iliac_L_dia_mm,arc_R_mm,arc_L_mm,', ...
                   'eligible_devices,error_message\n']);
@@ -193,8 +175,9 @@ function write_summary_csv(results, path)
         r = results(k);
         elig = strjoin(r.eligible_devices, '|');
         err  = strrep(r.error_message, ',', ';');
-        fprintf(fid, '%s,%s,%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.0f,%.0f,%s,%s\n', ...
+        fprintf(fid, '%s,%s,%s,%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.0f,%.0f,%s,%s\n', ...
             r.case_name, r.status, num2str_safe(r.audit_passed), ...
+            num2str_safe(r.qc_usable), ...
             r.runtime_s, r.neck_dia_mm, r.neck_len_mm, r.neck_ang_deg, ...
             r.iliac_R_dia_mm, r.iliac_L_dia_mm, r.arc_R_mm, r.arc_L_mm, ...
             elig, err);
