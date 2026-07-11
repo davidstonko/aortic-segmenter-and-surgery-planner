@@ -75,6 +75,18 @@ JSON — so a batch/GUI/reader can gate on one field and nobody mistakes an
 unreliable result for a real plan. New tests `tests/test_qc_summary.m` (6):
 verdict logic + plan surfacing (fails → banner + json flag; no-QC → usable).
 
+**Batch cohort CSV: fixed silent-NaN sizing + added qc_usable (goal #5).**
+`run_batch`'s `populate_from_output` read `out.plan.neck_dia_mm` (and the
+other sizing scalars) off the plan struct directly — but `generate_plan`
+nests them under `out.plan.measurements.neck_diameter_mm`, so **every sizing
+column in the cohort CSV was silently NaN** (the benchmark table goal #5
+depends on this). Extracted the mapping into a unit-tested package function
+`evar_plan.batch_summary_row(out)` that reads the correct nested fields and
+the reliability verdict; added a `qc_usable` column so a cohort run flags
+unusable cases at a glance. Removed the now-dead `field_or_nan`/`arc_length`
+locals. New tests `tests/test_batch_summary_row.m` (4): sizing populated
+(not NaN), qc_usable from `out.qc` or plan fallback, empty-output → NaNs.
+
 ## 2026-06-16 — Generalization test on 2 new CTAs (FAILS) + 2 bug fixes
 
 Ran `run_planner_headless` end-to-end on two new out-of-cohort CTAs (deps live:
