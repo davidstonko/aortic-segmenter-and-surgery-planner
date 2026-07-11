@@ -63,6 +63,18 @@ no tests: a contrast bridge fuses two fragments (never removing voxels) and
 a single-component input is a no-op. All three Step-3c stages are now
 FOV-independent.
 
+**QC reliability verdict surfaced in the plan (honest failure, GOALS #41).**
+`run_planner_headless` had per-check QC flags (`segmentation_incomplete`,
+`orientation_suspect`, `centerline_implausible`) but no single verdict, and
+`generate_plan` emitted confident-looking sizing even from a degenerate
+centerline. Added `autoseg.qc_summary(qc)` → `[usable, summary]` (usable =
+false if any hard check failed), wired as `out.qc.usable`/`out.qc.summary`.
+`generate_plan` now carries `plan.qc_usable`/`plan.qc_summary`, prepends a
+`*** QC FAILED — … ***` banner to the plan text, and serialises both to the
+JSON — so a batch/GUI/reader can gate on one field and nobody mistakes an
+unreliable result for a real plan. New tests `tests/test_qc_summary.m` (6):
+verdict logic + plan surfacing (fails → banner + json flag; no-QC → usable).
+
 ## 2026-06-16 — Generalization test on 2 new CTAs (FAILS) + 2 bug fixes
 
 Ran `run_planner_headless` end-to-end on two new out-of-cohort CTAs (deps live:

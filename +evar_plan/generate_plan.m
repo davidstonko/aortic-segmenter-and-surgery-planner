@@ -43,6 +43,12 @@ function plan = generate_plan(planner_result, opts)
     plan.measurements   = evar_plan.measure_from_centerline(planner_result);
     plan.ranked_devices = ifu.match_devices(plan.measurements);
 
+    % QC reliability verdict. When the planner flagged the result as
+    % unusable (degenerate centerline / incomplete segmentation / suspect
+    % orientation) the numbers below are still emitted for inspection but
+    % MUST be marked untrustworthy so nobody reads them as a real plan.
+    [plan.qc_usable, plan.qc_summary] = plan_qc_verdict(planner_result);
+
     elig_mask = arrayfun(@(d) d.eligibility.eligible, plan.ranked_devices);
     elig = plan.ranked_devices(elig_mask);
     if isempty(elig)
@@ -92,10 +98,15 @@ function plan = generate_plan(planner_result, opts)
         'clinical decision-making.'];
 
     plan.timestamp = datestr(now, 'yyyy-mm-ddTHH:MM:SS'); %#ok<DATST,TNOW1>
+    qc_banner = '';
+    if ~plan.qc_usable
+        qc_banner = sprintf('\n\n*** %s ***', plan.qc_summary);
+    end
     plan.rationale = sprintf( ...
-        'AUTO EVAR PLAN — generated %s\n%s\n\nAuto-measurements (from centerline + radius profile):\n%s\n\n%s\n', ...
+        'AUTO EVAR PLAN — generated %s\n%s%s\n\nAuto-measurements (from centerline + radius profile):\n%s\n\n%s\n', ...
         plan.timestamp, ...
         repmat('=', 1, 72), ...
+        qc_banner, ...
         strjoin(meas_lines, newline), ...
         rec_line);
 
@@ -158,6 +169,29 @@ function write_text(path, plan)
     fprintf(fid, '\n[%s]\n', plan.disclaimer);
 end
 
+function [usable, summary] = plan_qc_verdict(planner_result)
+%PLAN_QC_VERDICT  Reliability verdict for the plan from the planner's QC
+%   struct. Prefers a precomputed qc.usable/qc.summary; else derives it via
+%   autoseg.qc_summary. No QC attached => usable (the caller's own concern,
+%   e.g. the unit tests that feed a bare centerline struct).
+    if isfield(planner_result, 'qc') && isstruct(planner_result.qc)
+        qc = planner_result.qc;
+        if isfield(qc, 'usable') && ~isempty(qc.usable)
+            usable = logical(qc.usable);
+            if isfield(qc, 'summary') && ~isempty(qc.summary)
+                summary = qc.summary;
+            else
+                [~, summary] = autoseg.qc_summary(qc);
+            end
+        else
+            [usable, summary] = autoseg.qc_summary(qc);
+        end
+    else
+        usable  = true;
+        summary = '';
+    end
+end
+
 function s = neck_len_str(m)
 %NECK_LEN_STR  Neck length, or an explicit N/A when no aneurysm onset
 %   was detected (length to the bifurcation is not a real neck).
@@ -214,6 +248,8 @@ function write_json(path, plan)
     % Build a flat struct safe for jsonencode (no nested function handles).
     out.timestamp      = plan.timestamp;
     out.disclaimer     = plan.disclaimer;
+    out.qc_usable      = plan.qc_usable;
+    out.qc_summary     = plan.qc_summary;
     out.measurements   = plan.measurements;
     out.recommendation = plan.recommendation;
     out.devices        = [];

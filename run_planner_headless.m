@@ -812,6 +812,11 @@ function out = run_planner_headless(dicom_dir, opts)
                     'min_plausible_arc_mm', min_plausible_arc_mm, ...
                     'distal_target', opts.distal_target, ...
                     'warnings', {seg_qc_warnings});
+    % Single aggregate verdict: usable=false if ANY hard check failed, so
+    % callers (plan text, batch CSV, GUI) can gate on one field instead of
+    % re-deriving the logic. The plan generator surfaces this as an explicit
+    % "do not trust" banner (see evar_plan.generate_plan).
+    [out.qc.usable, out.qc.summary] = autoseg.qc_summary(out.qc);
     if seg_incomplete
         fprintf(['[QC] WARNING: segmentation incomplete (%d extension failure(s)); ' ...
                  'sizing rests on a truncated mask.\n'], numel(seg_qc_warnings));
