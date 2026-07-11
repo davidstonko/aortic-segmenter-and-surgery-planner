@@ -1513,22 +1513,20 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'BackgroundColor', 'w', 'BorderType', 'none');
 
             % --- Color palette ----------------------------------
-            % Pale tints group buttons by function so the toolbar
-            % is scannable at a glance:
-            %   green  = measurement     (Measure / Angle)
-            %   y-grn  = drawing tools   (ROI / Annotate / Wire / Finish)
-            %   teal   = navigation      (Crosshair)
-            %   red    = destructive     (Clear all)
-            %   peach  = display options (Auto W/L / Invert / Slab / Play / Speed)
-            %   lavender = project I/O   (Save / Load)
-            %   gray   = info            (DICOM tags)
-            MEAS_BG  = [0.78 0.97 0.80];
-            DRAW_BG  = [0.95 1.00 0.74];
-            NAV_BG   = [0.74 0.96 0.94];
-            DEL_BG   = [1.00 0.80 0.78];
-            DISP_BG  = [1.00 0.86 0.72];
-            PROJ_BG  = [0.86 0.82 1.00];
-            INFO_BG  = [0.88 0.88 0.92];
+            % Calm, unified toolbar: tool buttons share one neutral tint
+            % so the row reads as a quiet workspace rather than a rainbow.
+            % Colour is reserved for SEMANTICS only — a warm tint marks the
+            % single destructive action (Clear all). Functional grouping is
+            % conveyed by order + the icon/label, not by clashing hues, and
+            % the active tool/view shows via the button's pressed state.
+            NEUTRAL_BG = [0.95 0.96 0.98];   % all non-destructive tools
+            MEAS_BG  = NEUTRAL_BG;
+            DRAW_BG  = NEUTRAL_BG;
+            NAV_BG   = NEUTRAL_BG;
+            DEL_BG   = [0.97 0.89 0.88];      % destructive (Clear all) — muted red
+            DISP_BG  = NEUTRAL_BG;
+            PROJ_BG  = NEUTRAL_BG;
+            INFO_BG  = NEUTRAL_BG;
 
             % -------- Row 1: measurement + drawing --------------
             x = 4;
