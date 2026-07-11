@@ -1400,11 +1400,11 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             app.ViewToolbar = uipanel(app.UIFigure, ...
                 'Position', [10 barY bar_w 32], ...
                 'BackgroundColor', 'w', 'BorderType', 'none');
-            % Color palette — view buttons share a pale blue tint
-            % so the user can tell at a glance "this row picks a
-            % view". The tool toolbars use distinct tints for
-            % different functional groups (see createToolToolbar).
-            VIEW_BG = [0.86 0.92 1.00];
+            % Color palette — view buttons are neutral by default; the
+            % ACTIVE view is repainted a clear blue by applyViewButtonColors
+            % (called at the end of this function and on every setViewMode),
+            % so the current view is obvious at a glance.
+            VIEW_BG = [0.95 0.96 0.98];
             % Compact button row — shorter labels + tighter spacing so
             % the W/L and 3D Style dropdowns at the right edge fit even
             % at the minimum 1100-px window width (toolbar = ~660 px in
@@ -1483,6 +1483,8 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'ItemsData', {'vessel', 'cta_recon', 'bone', 'mip', 'isosurface'}, ...
                 'Value', 'vessel', ...
                 'ValueChangedFcn', @(d,~) setVolStyle(app, d.Value));
+
+            applyViewButtonColors(app);   % highlight the initial active view
         end
 
         function createToolToolbar(app)
@@ -3659,6 +3661,29 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
         end
 
         % --- View mode switching ------------------------------------
+        function applyViewButtonColors(app)
+            % Colour the view-selector so the ACTIVE view reads as a clear
+            % blue and the rest are neutral (matching the tool rows). The
+            % state-button pressed look alone was too subtle when every
+            % button shared one pale tint.
+            ACTIVE = [0.62 0.78 0.98];
+            IDLE   = [0.95 0.96 0.98];
+            m = app.ViewMode; if isempty(m); m = 'axial'; end
+            pairs = { app.BtnAxial, 'axial'; app.BtnCoronal, 'coronal'; ...
+                      app.BtnSagittal, 'sagittal'; app.Btn3D, '3d'; ...
+                      app.Btn3DVol, '3dvol'; app.BtnCPR, 'cpr'; app.Btn2x2, '2x2' };
+            for i = 1:size(pairs, 1)
+                b = pairs{i, 1};
+                if ~isempty(b) && isvalid(b)
+                    if strcmp(m, pairs{i, 2})
+                        b.BackgroundColor = ACTIVE;
+                    else
+                        b.BackgroundColor = IDLE;
+                    end
+                end
+            end
+        end
+
         function setViewMode(app, mode)
             % Flag a fit on the next refresh whenever the view
             % changes, so a zoomed-in coronal doesn't carry its
@@ -3685,6 +3710,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             if ~isempty(app.BtnCPR) && isvalid(app.BtnCPR)
                 app.BtnCPR.Value = strcmp(mode, 'cpr');
             end
+            applyViewButtonColors(app);   % highlight the active view
             % Show/hide 2D axes vs 3D volume panel
             % Multi-pane: hide everything else, show the four mini
             % panes. The 2x2 button stays on; the 6 single-view
