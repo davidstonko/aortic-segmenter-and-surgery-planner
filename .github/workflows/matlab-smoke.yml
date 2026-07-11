@@ -1,0 +1,87 @@
+name: MATLAB smoke + regression
+
+# Smoke (parse + module-level checks) AND the 22-test regression suite
+# under tests/. Does NOT require TotalSegmentator or VMTK — the external-
+# tool wrappers detect-and-skip when those CLIs are missing, which is
+# exactly the case on stock CI runners.
+#
+# Triggers: every push and PR to any branch. matlab-actions/setup-matlab
+# provisions MATLAB on GitHub-hosted runners at no cost for public repos.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  workflow_dispatch:
+
+jobs:
+  matlab-tests:
+    name: MATLAB ${{ matrix.matlab-version }} — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        # Track the MATLAB releases we develop on. Add R2025b once
+        # matlab-actions/setup-matlab publishes a corresponding image.
+        matlab-version: ['R2024a', 'R2024b']
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up MATLAB
+        uses: matlab-actions/setup-matlab@v2
+        with:
+          release: ${{ matrix.matlab-version }}
+          products: >-
+            Image_Processing_Toolbox
+            Signal_Processing_Toolbox
+            Statistics_and_Machine_Learning_Toolbox
+
+      - name: Smoke test — parse + module-level checks
+        uses: matlab-actions/run-command@v2
+        with:
+          command: |
+            addpath(pwd);
+            % --- 1. Parse the app classdef without instantiating any UI
+            m = methods('app.AorticCenterlineApp');
+            fprintf('AorticCenterlineApp: %d methods\n', numel(m));
+            assert(numel(m) >= 16, ...
+                   'AorticCenterlineApp parse incomplete');
+            % --- 2. detect() functions return structs without crashing
+            ts = autoseg.detect();   assert(islogical(ts.available));
+            vk = vmtk_centerline.detect(); assert(islogical(vk.available));
+            % --- 3. evar_measurements signature smoke test on a phantom
+            P = phantom.load_from_library('PHANTOM_aaa_male');
+            M = preprocess.evar_measurements( ...
+                P.Pv_mm_right, P.R_mm_right, ...
+                P.Pv_mm_left,  P.R_mm_left, ...
+                P.bifurc_node_right);
+            assert(isstruct(M.iliac.right), 'iliac.right missing');
+            assert(isstruct(M.iliac.left),  'iliac.left missing');
+            % --- 4. Four-phantom library convention
+            for nm = {'PHANTOM_normal_male', 'PHANTOM_normal_male_raw', ...
+                      'PHANTOM_aaa_male',    'PHANTOM_aaa_male_raw'}
+                Q = phantom.load_from_library(nm{1});
+                assert(isfield(Q, 'vol'), ...
+                       sprintf('%s has no .vol', nm{1}));
+            end
+            % --- 5. Raw phantom → D struct path used by the GUI loader
+            Praw = phantom.load_from_library('PHANTOM_aaa_male_raw');
+            D    = phantom.to_D_struct(Praw, struct('strip_labels', true));
+            assert(~isfield(D, 'mask'), 'strip_labels did not strip mask');
+            assert(isfield(D, 'slice_z_mm'), 'D is missing slice_z_mm');
+            disp('Smoke test passed.');
+
+      - name: Regression suite (tests/, 22 tests)
+        uses: matlab-actions/run-command@v2
+        with:
+          command: |
+            addpath(pwd);
+            addpath(fullfile(pwd, 'scripts'));
+            rc = run_tests();
+            if rc ~= 0
+                error('Regression suite failed (rc=%d). See output above.', rc);
+            end
+            disp('Regression suite passed.');
