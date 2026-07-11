@@ -1,0 +1,105 @@
+cff-version: 1.2.0
+title: "EVAR Planner — an open-source automated endovascular aneurysm-repair planner"
+message: "If you use this software, please cite it using these metadata. Research use only — NOT a regulated medical device."
+type: software
+authors:
+  - family-names: Stonko
+    given-names: David
+    name-particle: P.
+    orcid: "https://orcid.org/0000-0002-2804-3857"
+abstract: >-
+  EVAR Planner is an open-source automated endovascular aneurysm-repair
+  (EVAR) planner from a raw contrast-enhanced CT angiogram. The headless
+  pipeline ingests DICOM, segments the aorta and iliacs via
+  TotalSegmentator, auto-detects three EVAR endpoints (supraceliac aorta
+  ~5 cm above the celiac, plus both common femoral arteries) without
+  user clicks, builds a bifurcated centerline, derives sizing
+  measurements (proximal neck Ø/length/angulation, iliac landing
+  diameters, peak aneurysm Ø), and ranks seven catalogued stent grafts
+  (Gore Excluder, Gore Excluder Conformable, Medtronic Endurant II,
+  Cook Zenith Flex, Endologix AFX2, Endologix/Trivascular Ovation iX,
+  Terumo Treo) against published IFU criteria. A MATLAB GUI variant
+  exposes the same pipeline with operator review at each step, and the
+  segmentation passes a 12-rule SE(3) anatomic-plausibility audit
+  calibrated against the AAA-100 reference cohort (Zenodo 10932957).
+  Centerlines are computed via VMTK's Voronoi/fast-marching algorithm
+  (matching the reference clinical workstation TeraRecon) with a pure-
+  MATLAB skeleton-graph shortest-path implementation as a fallback
+  when VMTK is not installed.
+keywords:
+  - EVAR
+  - TEVAR
+  - endovascular
+  - aortic aneurysm
+  - vascular surgery
+  - centerline extraction
+  - stent graft sizing
+  - medical image analysis
+  - MATLAB
+  - open source
+license: MIT
+version: "1.5.0"
+date-released: "2026-06-15"
+references:
+  - type: article
+    authors:
+      - family-names: Wasserthal
+        given-names: Jakob
+      - family-names: Breit
+        given-names: Hanns-Christian
+      - family-names: Meyer
+        given-names: Manfred T.
+    title: >-
+      TotalSegmentator: Robust Segmentation of 104 Anatomic Structures
+      in CT Images
+    journal: "Radiology: Artificial Intelligence"
+    year: 2023
+    volume: "5"
+    issue: "5"
+    doi: "10.1148/ryai.230024"
+  - type: article
+    authors:
+      - family-names: Antiga
+        given-names: Luca
+      - family-names: Piccinelli
+        given-names: Marina
+      - family-names: Botti
+        given-names: Lorenzo
+    title: >-
+      An image-based modeling framework for patient-specific computational
+      hemodynamics
+    journal: "Medical & Biological Engineering & Computing"
+    year: 2008
+    volume: "46"
+    issue: "11"
+    start: 1097
+    end: 1112
+    doi: "10.1007/s11517-008-0420-1"
+  - type: article
+    authors:
+      - family-names: Chaikof
+        given-names: Elliot L.
+    title: >-
+      The Society for Vascular Surgery practice guidelines on the
+      care of patients with an abdominal aortic aneurysm
+    journal: "Journal of Vascular Surgery"
+    year: 2018
+    volume: "67"
+    issue: "1"
+    start: 2
+    notes: "Source for the IFU criteria encoded in +ifu/devices.m"
+  - type: article
+    authors:
+      - family-names: AbuRahma
+        given-names: Ali F.
+    title: >-
+      Aortic neck anatomic features and predictors of outcomes in
+      endovascular repair of abdominal aortic aneurysms following vs
+      not following instructions for use
+    journal: "Journal of the American College of Surgeons"
+    year: 2018
+    volume: "227"
+    issue: "3"
+    start: 350
+    end: 359
+    notes: "Source for the IFU criteria encoded in +ifu/devices.m"

@@ -1,0 +1,27 @@
+# Conda environment for VMTK centerline extraction. VMTK ships its own
+# numpy / VTK / ITK pin set, so it's cleanest to keep it isolated from
+# the TotalSegmentator env.
+#
+# *** Apple Silicon (M1/M2/M3) note ***
+# VMTK 1.5 has NO native arm64 conda build. Create the env in osx-64
+# mode so Rosetta 2 emulates x86_64:
+#
+#   CONDA_SUBDIR=osx-64 conda env create -f environment-vmtk.yml
+#   conda activate vmtk
+#
+# On Intel Linux/Mac/Windows just use:
+#
+#   conda env create -f environment-vmtk.yml
+#   conda activate vmtk
+#
+# Verified against the 22-test regression suite on macOS arm64 + Rosetta,
+# 2026-05-16.
+name: vmtk
+channels:
+  - vmtk
+  - conda-forge
+dependencies:
+  - python=3.9
+  - vmtk=1.5.0
+  - vtk>=9,<10
+  # numpy is pinned by VMTK; don't override.

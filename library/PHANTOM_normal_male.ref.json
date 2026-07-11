@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "case_name": "PHANTOM_normal_male",
+  "reference_tool": "ground-truth phantom geometry (build_normal_male.m)",
+  "annotator": "phantom-builder",
+  "annotation_date": "2026-05-17",
+  "measurements": {
+    "neck_diameter_mm": 25.0,
+    "neck_length_mm": 85.0,
+    "neck_angulation_deg": 0.0,
+    "iliac_R_diameter_mm": 12.0,
+    "iliac_R_length_mm": 60.0,
+    "iliac_L_diameter_mm": 12.0,
+    "iliac_L_length_mm": 60.0,
+    "aneurysm_max_diameter_mm": null,
+    "distance_lowest_renal_to_bifurcation_mm": 85.0
+  },
+  "notes": "Normal-male phantom — no aneurysm (aneurysm_max_diameter_mm is null on purpose). Aorta is straight (angulation 0°). Aortic dimensions taper from R=12.5 (Ø 25 mm) above the renals to R=9 (Ø 18 mm) at the bifurcation. CIA radius 6 mm (Ø 12 mm). Bifurc at Z=135 mm, renals at Z=50 mm → 85 mm renal-to-bifurc distance.",
+  "uncertainty_mm": 0.5
+}
