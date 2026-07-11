@@ -21,9 +21,24 @@ screenshot per step) + fixes verified live:
 - Corrected the stale `run_app.m` docstring (said "five steps"; the app has
   six: Load / Segment / Endpoints / Compute / Analyze / Export).
 
-Bigger structural UX items (toolbar declutter, floating-control cleanup,
-per-step default view, branding/research banner) are scoped for a follow-up
-pass with operator input.
+Further live-verified polish this session:
+- **Calmed the toolbar palette.** The two tool rows used 7 saturated group
+  tints (green/yellow/teal/red/peach/lavender/gray) that read as busy.
+  Unified to one neutral tint; colour now reserved for semantics (muted red
+  = the one destructive action, Clear all). The view row keeps blue.
+- **Clear active-view highlight.** View buttons are neutral; the active view
+  is repainted a distinct blue (`applyViewButtonColors`, on creation + every
+  `setViewMode`), since the shared pale-blue made the pressed state too
+  subtle.
+- **Dark clinical viewport.** Switched the image area (ImagePanel + MainAxes)
+  from white to a soft near-black — the PACS/TeraRecon convention. The CT
+  blends with the canvas (no white letterbox), the overlaid controls read as
+  intentional light-on-dark, and the 3D-volume + 2×2 panes (already dark) are
+  now consistent with the single-view canvas. Overlays live on the image, so
+  their contrast is unchanged (verified: mask overlay renders clearly).
+
+Remaining structural items (armed-tool highlight, per-step default view) are
+candidates for the next pass.
 
 ## 2026-07-11 — Public v1 on GitHub + CI + measurement reproducibility
 

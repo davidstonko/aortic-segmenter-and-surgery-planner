@@ -1712,6 +1712,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 hint_label(app, '');
             end
             refreshMeasurementOverlay(app);
+            refreshToolButtonColors(app);
 
             function hint_label(app, txt)
                 if isempty(app.SliceLabel) || ~isvalid(app.SliceLabel); return; end
@@ -1954,6 +1955,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 end
             end
             refreshMeasurementOverlay(app);
+            refreshToolButtonColors(app);
 
             function disarmPeer(b, active_mode, my_mode)
                 if isempty(b) || ~isvalid(b); return; end
@@ -3684,6 +3686,29 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 b = pairs{i, 1};
                 if ~isempty(b) && isvalid(b)
                     if strcmp(m, pairs{i, 2})
+                        b.BackgroundColor = ACTIVE;
+                    else
+                        b.BackgroundColor = IDLE;
+                    end
+                end
+            end
+        end
+
+        function refreshToolButtonColors(app)
+            % Highlight the armed input tool in the same blue as the active
+            % view, so "what is armed" is always obvious. Mirrors
+            % applyViewButtonColors; safe to call any time (guards each
+            % handle). Only the mutually-exclusive measure/draw tools are
+            % coloured here — the option toggles (Crosshair / Invert / Play)
+            % and the viewport Pan/WL keep their own semantics.
+            ACTIVE = [0.62 0.78 0.98];
+            IDLE   = [0.95 0.96 0.98];
+            btns = {app.BtnMeasure, app.BtnAngle, app.BtnROIRect, ...
+                    app.BtnROIEllipse, app.BtnAnnotate, app.BtnWirePath};
+            for i = 1:numel(btns)
+                b = btns{i};
+                if ~isempty(b) && isvalid(b) && isprop(b, 'Value')
+                    if b.Value
                         b.BackgroundColor = ACTIVE;
                     else
                         b.BackgroundColor = IDLE;
