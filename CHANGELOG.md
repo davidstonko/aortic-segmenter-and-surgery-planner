@@ -2,6 +2,29 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-11 — GUI/UX polish (pass 1)
+
+Live UX audit of `AorticCenterlineApp` (launched on the synthetic phantom,
+screenshot per step) + fixes verified live:
+- **Removed the empty black status bar** at the bottom of the window. The
+  cursor-HU toast (`CursorHULabel`) has a dark background and was left
+  `Visible='on'` with empty text on every 2-D refresh, rendering as a black
+  rectangle in all states. Now routed through a `setCursorHU` helper that
+  hides it when empty and reveals it only when the cursor is over the image.
+- **Fixed the first-run load guidance.** The canvas placeholder told the
+  user to "Open DICOM folder / Open phantom" — buttons only present in
+  User-driven mode — while the default could be Automatic. Placeholder is
+  now mode-agnostic: "Load a CT to begin — choose a source in the Step 1
+  panel on the right →".
+- **Stopped leaking the home path** in the Step-2 status ("Ready:
+  /Users/…/miniforge3/…/TotalSegmentator" → "✓ TotalSegmentator ready").
+- Corrected the stale `run_app.m` docstring (said "five steps"; the app has
+  six: Load / Segment / Endpoints / Compute / Analyze / Export).
+
+Bigger structural UX items (toolbar declutter, floating-control cleanup,
+per-step default view, branding/research banner) are scoped for a follow-up
+pass with operator input.
+
 ## 2026-07-11 — Public v1 on GitHub + CI + measurement reproducibility
 
 **Published to GitHub** (public): `github.com/davidstonko/aortic-segmenter-and-surgery-planner`.

@@ -1126,6 +1126,19 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             fprintf('[UP] (armed=%d, liveGrow done)\n', app.VesselPickArmed);
         end
 
+        function setCursorHU(app, txt)
+            % Set the cursor-HU readout text AND hide the label when empty,
+            % so its dark background never shows as an empty black bar at
+            % the bottom of the window. Visible is only touched on change to
+            % avoid flicker during mouse-move.
+            if isempty(app.CursorHULabel) || ~isvalid(app.CursorHULabel); return; end
+            app.CursorHULabel.Text = txt;
+            want = 'off'; if ~isempty(txt); want = 'on'; end
+            if ~strcmp(char(app.CursorHULabel.Visible), want)
+                app.CursorHULabel.Visible = want;
+            end
+        end
+
         function flashSegStatus(app, msg, color)
             % Update the side-panel seg_status label as immediate
             % visual feedback during the click → ray-cast → grow
@@ -1153,13 +1166,13 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             % map).
             if isempty(app.CursorHULabel) || ~isvalid(app.CursorHULabel); return; end
             if isempty(app.D) || ~isfield(app.D, 'vol')
-                app.CursorHULabel.Text = ''; return;
+                setCursorHU(app, ''); return;
             end
             if strcmp(app.ViewMode, '3dvol') || strcmp(app.ViewMode, 'cpr')
-                app.CursorHULabel.Text = ''; return;
+                setCursorHU(app, ''); return;
             end
             if isempty(app.MainAxes) || ~isvalid(app.MainAxes)
-                app.CursorHULabel.Text = ''; return;
+                setCursorHU(app, ''); return;
             end
             pt   = app.UIFigure.CurrentPoint;
             ip   = app.ImagePanel.Position;
@@ -1169,7 +1182,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             rel_x = pt(1) - abs_x;
             rel_y = pt(2) - abs_y;
             if rel_x < 0 || rel_x > ax_p(3) || rel_y < 0 || rel_y > ax_p(4)
-                app.CursorHULabel.Text = ''; return;
+                setCursorHU(app, ''); return;
             end
             xl = app.MainAxes.XLim;
             yl = app.MainAxes.YLim;
@@ -1195,21 +1208,21 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             end
             if iy < 1 || iy > sz(1) || ix < 1 || ix > sz(2) || ...
                iz < 1 || iz > sz(3)
-                app.CursorHULabel.Text = ''; return;
+                setCursorHU(app, ''); return;
             end
             if isnan(iy)
                 hu = max(app.D.vol(:, ix, iz));
-                app.CursorHULabel.Text = sprintf('  x=%d  z=%d  MIP HU=%4.0f  ', ...
-                    ix, iz, double(hu));
+                setCursorHU(app, sprintf('  x=%d  z=%d  MIP HU=%4.0f  ', ...
+                    ix, iz, double(hu)));
             else
                 hu = app.D.vol(iy, ix, iz);
                 % Voxel → mm location (voxel-1 origin at +Z = head)
                 yy_mm = (iy - 1) * app.D.pixel_mm(1);
                 xx_mm = (ix - 1) * app.D.pixel_mm(2);
                 zz_mm = (iz - 1) * app.D.slice_spacing_mm;
-                app.CursorHULabel.Text = sprintf( ...
+                setCursorHU(app, sprintf( ...
                     '  [%d, %d, %d]  (%.0f, %.0f, %.0f mm)  HU=%4.0f  ', ...
-                    iy, ix, iz, yy_mm, xx_mm, zz_mm, double(hu));
+                    iy, ix, iz, yy_mm, xx_mm, zz_mm, double(hu)));
             end
         end
 
@@ -3359,7 +3372,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'ValueChangingFcn', @(s,evt) sliderMoved(app, evt));
             app.SliceLabel = uilabel(app.ImagePanel, ...
                 'Position', [50 50 w-100 22], ...
-                'Text', 'Load a CT in the right panel → "Open DICOM folder…" or "Open phantom from library…"', ...
+                'Text', 'Load a CT to begin — choose a source in the Step 1 panel on the right →', ...
                 'HorizontalAlignment', 'center', 'FontSize', 12, ...
                 'FontColor', [0.45 0.45 0.50]);
             % Axes — leave room above for the slider
@@ -3732,7 +3745,14 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 app.SliceLabel.Visible = 'on';
             end
             if ~isempty(app.CursorHULabel) && isvalid(app.CursorHULabel)
-                app.CursorHULabel.Visible = 'on';
+                % Only reveal the HU readout if it currently has content —
+                % otherwise its dark background shows as an empty black bar.
+                % updateCursorHU reveals it as the cursor enters the image.
+                if isempty(char(app.CursorHULabel.Text))
+                    app.CursorHULabel.Visible = 'off';
+                else
+                    app.CursorHULabel.Visible = 'on';
+                end
             end
             if strcmp(mode, '3dvol')
                 if ~isempty(app.MainAxes) && isvalid(app.MainAxes)
@@ -4185,7 +4205,8 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'Text', '', 'FontSize', 11, ...
                 'FontColor', [0.95 0.95 0.95], ...
                 'BackgroundColor', [0.05 0.05 0.10], ...
-                'HorizontalAlignment', 'center');
+                'HorizontalAlignment', 'center', ...
+                'Visible', 'off');   % hidden until it has a readout (no empty black bar)
         end
 
         function refreshVolViewer(app)
@@ -6060,7 +6081,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             y = y - 48 - 10;
 
             if ts_avail.available
-                msg = sprintf('Ready: %s', ts_avail.invocation);
+                msg = '✓ TotalSegmentator ready';
                 col = [0 0.4 0];
             else
                 msg = 'TotalSegmentator not on PATH — switch to User-driven mode and use the guided 5-click flow, or see SETUP.md to install TS.';
@@ -6161,7 +6182,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'ButtonPushedFcn', @(~,~) runAutoSeg(app));
             top = top - h - GAP;
             if ts_avail.available
-                msg = sprintf('Ready: %s', ts_avail.invocation);
+                msg = '✓ TotalSegmentator ready';
                 col = [0 0.4 0];
             else
                 msg = 'TotalSegmentator not on PATH — see SETUP.md to install.';
