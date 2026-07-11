@@ -51,6 +51,18 @@ scales with the vessel sub-volume not the FOV. New tests
 `tests/test_hu_reconstruct_shell.m` (3) pin crop == full-volume reference
 (incl. boundary-clamp + empty-mask).
 
+**Step-3c'/3c'' reconnect: finished the FOV-independence sweep (GOALS #39).**
+Audited the two reconnect stages: `reconnect_vessel_fragments` (3c') was
+*already* cropping its iterative flood to the pelvis-band bbox + shell — no
+change needed. `reconnect_via_vesselness_path` (3c'') was casting
+`double(D.vol)` over the WHOLE volume (~2.5 GB on a 1000-slice scan) only to
+slice small per-fragment ROIs out of it; changed to per-ROI
+`double(D.vol(roi))` — identical values, FOV-independent memory. Added
+`tests/test_reconnect_vesselness_path.m` (2), covering a function that had
+no tests: a contrast bridge fuses two fragments (never removing voxels) and
+a single-component input is a no-op. All three Step-3c stages are now
+FOV-independent.
+
 ## 2026-06-16 — Generalization test on 2 new CTAs (FAILS) + 2 bug fixes
 
 Ran `run_planner_headless` end-to-end on two new out-of-cohort CTAs (deps live:
