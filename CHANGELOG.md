@@ -2,6 +2,42 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-11 — Public v1 on GitHub + CI + measurement reproducibility
+
+**Published to GitHub** (public): `github.com/davidstonko/aortic-segmenter-and-surgery-planner`.
+Before the first commit, completed a repo-wide PHI scrub deeper than the
+earlier surname pass — real given names + MRN/accession numbers were still
+hardcoded in the diagnostic/demo drivers (`JOHNDOE1^ROBERT^SANGYONG`,
+`MATSCHAT^NANCY^A`, etc.); all replaced with de-identified placeholder paths,
+`run_eia_matschat.m` → `run_eia_johndoe4.m`, `output/` (real-patient renders)
+git-ignored. Verified zero PHI across all tracked files.
+
+**CI (`.github/workflows/matlab-smoke.yml`) live and green** on GitHub-hosted
+Ubuntu via `matlab-actions/setup-matlab` (R2024a + R2024b). The first run went
+red and caught a real portability bug: `data/aortaseg24_class_map.json` (a
+non-PHI, paper-derived label map the code loads at runtime) was excluded by the
+broad `data/` ignore, so it never shipped — present locally (passed on R2025b)
+but missing on a clean checkout. Narrowed to `data/*` + a single-file
+re-include; patient DICOM/`.mat` stay ignored. Re-run green on both versions.
+
+**Aneurysm-onset hysteresis (GOALS #35 B-iii).** `measure_from_centerline`
+previously fired the aneurysm onset on the FIRST single node with R >
+`aneurysm_R_mm` (14) — one spuriously-wide slice could flip the onset and swing
+neck length + β. Onset now requires the over-threshold condition to be
+SUSTAINED over ≥ `opts.aneurysm_min_run_mm` (default 3 mm) of arc; a lone spike
+is skipped. Default is short enough that a genuine sac is detected at the same
+node as before, so the AAA phantom result is unchanged (neck Ø 26.56, length
+36.73, β 5.23), but the onset is now robust to resampling noise.
+
+**Measurement reproducibility band (GOALS #35 B-iii).** New
+`evar_plan.measurement_reproducibility(pr, opts)` reports how far the sizing
+scalars move under N perturbations of the centerline (random rigid rotation +
+arc-resampling jitter) — a reproducibility band for the publication's repro
+claim. On the AAA phantom (24 trials, ±3° / ±15% resample): neck Ø σ 0.013 mm,
+β σ 0.16°, neck length σ 0.39 mm, iliac Ø exactly invariant. New tests
+`tests/test_measurement_reproducibility.m` (3): hysteresis rejects a lone
+spike; the band is tight on the phantom; rotation-only is invariant.
+
 ## 2026-06-16 — Generalization test on 2 new CTAs (FAILS) + 2 bug fixes
 
 Ran `run_planner_headless` end-to-end on two new out-of-cohort CTAs (deps live:

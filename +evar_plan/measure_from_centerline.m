@@ -135,6 +135,14 @@ function meas = measure_from_centerline(planner_result, opts)
     % Ø is the lumen Ø at this seal zone — NOT an average taken through
     % the dilating segment up to the aneurysm (which over-calls it).
     if ~isfield(opts, 'seal_zone_mm');       opts.seal_zone_mm       = 15; end
+    % Aneurysm-onset hysteresis: R must exceed opts.aneurysm_R_mm and STAY
+    % above it over at least this many mm of arc for onset to fire, so a
+    % single spuriously-wide slice (partial-volume / segmentation noise)
+    % cannot flip the onset location. Default 3 mm is short enough that a
+    % genuine sac (a sustained dilation) is detected at the same node as a
+    % bare first-crossing, but long enough to reject lone spikes — this is
+    % what makes neck length + beta reproducible under resampling.
+    if ~isfield(opts, 'aneurysm_min_run_mm'); opts.aneurysm_min_run_mm = 3; end
 
     % Aneurysm START detection: walking from the proximal end, the
     % first arc-length where R exceeds opts.aneurysm_R_mm marks where
@@ -152,8 +160,13 @@ function meas = measure_from_centerline(planner_result, opts)
     idx_search_end = find(arc >= arc(idx_search_start) + opts.neck_search_mm, 1, 'first');
     if isempty(idx_search_end); idx_search_end = numel(R); end
 
-    % Find first index in [search_start, search_end] where R > aneurysm threshold
-    aneurysm_rel = find(R(idx_search_start:idx_search_end) > opts.aneurysm_R_mm, 1, 'first');
+    % Aneurysm onset in [search_start, search_end], WITH hysteresis: the
+    % first node that begins a run of R > threshold spanning at least
+    % opts.aneurysm_min_run_mm of arc. A lone over-threshold spike is
+    % skipped; the reported onset is the first sustained dilation.
+    seg_over = R(idx_search_start:idx_search_end) > opts.aneurysm_R_mm;
+    seg_arc  = arc(idx_search_start:idx_search_end);
+    aneurysm_rel = first_sustained_run(seg_over, seg_arc, opts.aneurysm_min_run_mm);
     aneurysm_detected = ~isempty(aneurysm_rel);
     if isempty(aneurysm_rel)
         % No aneurysm in the proximal aorta. We still need to return a
@@ -310,6 +323,28 @@ function [prox_idx, dia_mm, R_caliber] = locate_neck(arc, R, lo, hi, seal_zone_m
     seal_hi = find(arc >= arc(prox_idx) + seal_zone_mm, 1, 'first');
     if isempty(seal_hi) || seal_hi > hi; seal_hi = hi; end
     dia_mm = 2 * mean(R(prox_idx:seal_hi));
+end
+
+function idx0 = first_sustained_run(over, arc_seg, min_run_mm)
+%FIRST_SUSTAINED_RUN  Index of the first element that begins a run of
+%   TRUE values in OVER whose arc span (from ARC_SEG) is >= MIN_RUN_MM.
+%   Returns [] if no such run exists. A lone TRUE (span 0) is rejected
+%   whenever MIN_RUN_MM > 0, giving the onset detector its hysteresis.
+    idx0 = [];
+    n = numel(over);
+    i = 1;
+    while i <= n
+        if over(i)
+            j = i;
+            while j < n && over(j + 1); j = j + 1; end
+            if (arc_seg(j) - arc_seg(i)) >= min_run_mm
+                idx0 = i; return;
+            end
+            i = j + 1;
+        else
+            i = i + 1;
+        end
+    end
 end
 
 function v = axis_vec(Pv, arc, idxA, seg_mm)
