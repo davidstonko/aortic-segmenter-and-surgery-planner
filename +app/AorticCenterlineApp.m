@@ -3655,14 +3655,16 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 case 5; buildStep5_analyze(app);
                 case 6; buildStep6_export(app);
             end
-            % Step 2 (Segment) — TotalSegmentator-first workflow.
-            % Auto-seg gives clean aorta + iliacs + renals + branches
-            % in 1-2 min. The 3-D recon (viewer3d) is for visualization
-            % only at this step; clicks for manual refinement go to
-            % the 2-D MPR panes (which have reliable axes events).
-            if k == 2 && ~isempty(app.D) && isfield(app.D, 'vol') && ...
-               ~strcmp(app.ViewMode, '3dvol')
-                setViewMode(app, '3dvol');
+            % Step 2 (Segment) — smart default view keyed to the step mode:
+            %   Automatic  → 3-D recon, to review the TotalSegmentator result.
+            %   User-driven → axial MPR, so clicks land inside the lumen for
+            %                 manual segmentation (3-D can't take lumen clicks).
+            if k == 2 && ~isempty(app.D) && isfield(app.D, 'vol')
+                mode2 = 'auto';
+                if isfield(app.StepModes, 'step2'); mode2 = app.StepModes.step2; end
+                want = '3dvol';
+                if strcmp(mode2, 'user'); want = 'axial'; end
+                if ~strcmp(app.ViewMode, want); setViewMode(app, want); end
             end
         end
 
