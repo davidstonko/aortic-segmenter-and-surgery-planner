@@ -4,16 +4,17 @@
 %       cd '/Users/.../Vascular Mathematical Modeling/phase-3-real-EVAR'
 %       run_app
 %
-%   The app opens with five steps along the top:
-%       1. Load CT     — DICOM folder, NIfTI file, or cached .mat
-%       2. Segment     — click inside the aorta lumen
-%       3. Endpoints   — click the proximal and distal centerline ends
-%       4. Compute     — run the centerline algorithm
-%       5. Export      — save centerline.mat for downstream use
+%   The app opens with six steps along the top:
+%       1. Load CT     — DICOM folder, NIfTI file, cached .mat, or phantom
+%       2. Segment     — TotalSegmentator (auto) or click inside the lumen
+%       3. Endpoints   — proximal aorta + both common femoral arteries
+%       4. Compute     — bifurcated centerline (VMTK or skeleton backend)
+%       5. Analyze     — EVAR sizing + IFU device match
+%       6. Export      — save centerline.mat + the EVAR plan (.txt/.json)
 %
-%   The cached CT for the JohnDoe1 case is at
-%       results/logs/ct_volume.mat
-%   so you can use the "Open cached CT" button in Step 1 for instant load.
+%   Every step has a User-driven / Automatic toggle; Step 2's "Auto-run
+%   full pipeline" drives the whole CT → centerline flow in one click.
+%   To try it without data, use Step 1 → "Open phantom from library…".
 
 %   Project: AINN/EVAR (Phase 3)
 %   Author : David P. Stonko
