@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "case_name": "PHANTOM_aaa_male",
+  "reference_tool": "ground-truth phantom geometry (build_aaa_male.m)",
+  "annotator": "phantom-builder",
+  "annotation_date": "2026-05-17",
+  "measurements": {
+    "neck_diameter_mm": 27.0,
+    "neck_length_mm": 25.0,
+    "neck_angulation_deg": 20.0,
+    "iliac_R_diameter_mm": 9.0,
+    "iliac_R_length_mm": 60.0,
+    "iliac_L_diameter_mm": 9.0,
+    "iliac_L_length_mm": 60.0,
+    "aneurysm_max_diameter_mm": 60.0,
+    "distance_lowest_renal_to_bifurcation_mm": 118.0,
+    "bifurcation_angle_deg": 36.0
+  },
+  "notes": "Ground-truth dimensions baked into +phantom/build_aaa_male.m. The phantom is a procedurally-generated synthetic CT, so these values are exact by construction — the planner's job is to recover them within measurement noise. distance_lowest_renal_to_bifurcation = Z_dneck_bot - Z_renals = 168 - 50 = 118 mm.",
+  "uncertainty_mm": 0.5
+}

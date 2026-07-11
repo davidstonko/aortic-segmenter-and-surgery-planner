@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "case_name": "JohnDoe1_EVAR",
+  "reference_tool": "TeraRecon Aquarius iNtuition",
+  "annotator": "",
+  "annotation_date": "2026-05-20",
+  "measurements": {
+    "neck_diameter_mm": null,
+    "neck_length_mm": null,
+    "neck_angulation_deg": null,
+    "iliac_R_diameter_mm": null,
+    "iliac_R_length_mm": null,
+    "iliac_L_diameter_mm": null,
+    "iliac_L_length_mm": null,
+    "aneurysm_max_diameter_mm": null,
+    "distance_lowest_renal_to_bifurcation_mm": null,
+    "bifurcation_angle_deg": null
+  },
+  "notes": "",
+  "uncertainty_mm": 1
+}

@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------
+# EVAR Planner — patient data and runtime artefacts must NEVER be
+# tracked. The phantom files are the only library entries that ship
+# with the repo (they're synthetic).
+# ---------------------------------------------------------------
+
+# --- Patient image data ----------------------------------------
+data/
+*.dcm
+*.DCM
+*.nii
+*.nii.gz
+*.NII
+*.NII.GZ
+
+# --- Runtime artefacts (may embed PHI) -------------------------
+# Cached pipeline results carry the source DICOM header (PatientName,
+# MRN, DOB, accession, institution). NONE of results/ is ever tracked.
+results/
+library/index.csv
+
+# Derived renders from real patient CTs (segmentation / centerline
+# figures). Development scratch — never tracked (same policy as results/).
+output/
+
+# --- PHI safety net: no .mat anywhere except synthetic phantoms -
+# Defense in depth — every cached .mat (results/, .cache/, stray
+# diagnostics) embeds the DICOM header. The only .mat that ships is the
+# procedurally-generated phantom. A new cache file therefore CANNOT leak
+# PHI by being forgotten in .gitignore.
+*.mat
+!library/PHANTOM_*.mat
+
+# --- External-tool caches --------------------------------------
+.cache/
+.cache/**
+
+# --- MATLAB ----------------------------------------------------
+*.asv
+*.m~
+*.mex*
+*.slxc
+slprj/
+sccprj/
+codegen/
+*.autosave
+.matlab/
+
+# --- macOS / editor noise --------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# --- Python tooling envs ---------------------------------------
+__pycache__/
+*.pyc
+.env
+.venv/
+.python-version
+
+# --- Build / docs artefacts ------------------------------------
+build/
+dist/
+*.egg-info/
+docs/_build/
+
+# --- Editor backups ---
+*.bak

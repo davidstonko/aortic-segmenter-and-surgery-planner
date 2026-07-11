@@ -1,0 +1,26 @@
+# Conda environment for the auto-segmentation half of the pipeline.
+# Activate this env BEFORE launching MATLAB so TotalSegmentator is on PATH.
+#
+#   conda env create -f environment.yml
+#   conda activate evar-tools
+#   matlab &
+#
+# Versions pinned to the rig the project's 22-test regression suite was
+# verified against (2026-05-16, macOS arm64). TotalSegmentator follows
+# semver loosely — staying on the 2.13.x minor minimises surprise.
+name: evar-tools
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.24,<2.0
+  - nibabel>=5.0,<6.0
+  - scipy>=1.11,<2.0
+  - pip:
+      - TotalSegmentator==2.13.0
+      - SimpleITK>=2.3,<3.0
+      # Optional — AortaSeg24 nnU-Net backend (Phase B). Uncomment to
+      # enable +autoseg/+aortaseg24/; also set AORTASEG24_MODEL_DIR.
+      # See DEPENDENCIES.md and docs/AORTASEG24_LABEL_MAP.md.
+      # - nnunetv2>=2.5
