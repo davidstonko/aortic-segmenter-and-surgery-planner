@@ -1484,6 +1484,10 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'Value', 'vessel', ...
                 'ValueChangedFcn', @(d,~) setVolStyle(app, d.Value));
 
+            % Divider between the view selectors and the W/L + 3-D dropdowns.
+            uipanel(app.ViewToolbar, 'Position', [547 5 2 22], ...
+                'BackgroundColor', [0.82 0.82 0.86], 'BorderType', 'none');
+
             applyViewButtonColors(app);   % highlight the initial active view
         end
 
@@ -1672,6 +1676,20 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'BackgroundColor', INFO_BG, ...
                 'Tooltip', 'Read-only viewer of DICOM tags.', ...
                 'ButtonPushedFcn', @(~,~) showDicomTags(app));
+
+            % Group dividers — thin rules between functional clusters so the
+            % unified-neutral toolbar stays scannable at a glance.
+            %   Row 1: input tools | Clear all | Crosshair
+            %   Row 2: display     | project   | info
+            SEP = [0.82 0.82 0.86];
+            for sx = [539 613]
+                uipanel(app.ToolToolbar, 'Position', [sx 5 2 22], ...
+                    'BackgroundColor', SEP, 'BorderType', 'none');
+            end
+            for sx = [462 650]
+                uipanel(app.ToolToolbar2, 'Position', [sx 5 2 22], ...
+                    'BackgroundColor', SEP, 'BorderType', 'none');
+            end
         end
 
         % --- Measurement tool wiring ----------------------------------
