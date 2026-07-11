@@ -309,40 +309,26 @@ function out = run_planner_headless(dicom_dir, opts)
     %     it — no phantom anatomy is invented.
     t0 = tic;
     if ~isempty(D) && isfield(D, 'vol') && ~isempty(D.vol) && any(mask(:))
-        contrast_hu_lo = 150;
-        contrast_hu_hi = 1400;
-        contrast_mask  = (D.vol >= contrast_hu_lo) & (D.vol <= contrast_hu_hi);
-        % 5-mm shell around the existing TS-derived vessel mask.
-        % Pixel size is ~0.7-0.8 mm on these scans → 5 mm ≈ 7 vox.
+        % Grow the TS-derived mask through actual CT contrast within a
+        % 5-mm shell (HU 150-1400, in-plane size-capped so it can't leak
+        % into cancellous marrow / IVC / bowel). The helper crops the work
+        % to the mask's bounding box + shell radius, so the several
+        % full-resolution boolean volumes are only allocated over the
+        % sub-volume the vessels occupy — bit-identical output, far less
+        % memory on large-FOV / runoff CTA (GOALS #39). No synthetic voxels
+        % are added; the new voxels stay label 0 (interior to existing
+        % labeled regions, so the SE(3) audit + side-stamping still work).
         pix_mm = abs(D.pixel_mm(1));
-        shell_r = max(3, round(5 / pix_mm));
-        shell = imdilate(mask, strel('sphere', shell_r));
-        % Vessel-size leak guard (same ceiling as the walker + adaptive
-        % follower). Without it, this reconstruct leaked +585 mL into
-        % pelvic bone marrow on the low-contrast JohnDoe2 case — the
-        % fixed 150-1400 window overlaps cancellous marrow (~200-400 HU)
-        % and the 5-mm shell touches the iliac-adjacent ilium/sacrum.
-        % Dropping over-size in-plane components keeps the grow vessel-
-        % confined. Adds no synthetic voxels.
-        cand = autoseg.drop_big_inplane_cc(contrast_mask & shell, ...
-            round(400 / pix_mm^2));
-        % Grow the mask through the shell-constrained, vessel-capped contrast.
-        grown = imreconstruct(mask, mask | cand, 26);
-        n_added = nnz(grown) - nnz(mask);
+        [grown, hr_info] = autoseg.hu_reconstruct_shell(mask, D.vol, ...
+            struct('pix_mm', pix_mm));
+        n_added = hr_info.n_added;
         mask = grown;
-        % Propagate label assignments: voxels that came from the grow
-        % should inherit the label of their nearest pre-grow vessel
-        % voxel. For simplicity, leave the original labels untouched —
-        % the new voxels stay label 0 (unlabeled). The CC structure
-        % is what matters for the centerline graph; labels are used
-        % only for the SE(3) audit and side-stamping, both of which
-        % still work because the new voxels are interior to existing
-        % labeled regions.
         if opts.verbose
-            cc_before = bwconncomp(mask & ~grown(:,:,:), 26); %#ok<NASGU>
             cc_after = bwconncomp(grown, 26);
-            fprintf('[3c] HU-reconstruct: +%d vox (shell %d vox = %.1f mm); %d 3D-CCs\n', ...
-                n_added, shell_r, shell_r * pix_mm, cc_after.NumObjects);
+            fprintf(['[3c] HU-reconstruct: +%d vox (shell %d vox = %.1f mm; ' ...
+                     'crop %.0f%% of FOV); %d 3D-CCs\n'], ...
+                n_added, hr_info.shell_r, hr_info.shell_r * pix_mm, ...
+                100 * hr_info.crop_frac, cc_after.NumObjects);
         end
     end
     timing.hu_reconstruct = toc(t0);
