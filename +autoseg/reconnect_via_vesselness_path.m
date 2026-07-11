@@ -76,7 +76,9 @@ function [mask_out, info] = reconnect_via_vesselness_path(D, mask_in, opts)
     if ~isfield(opts,'anchor_seed');  opts.anchor_seed = [];  end
 
     sz = size(mask_in); if numel(sz)<3, sz(3)=1; end
-    V  = double(D.vol);
+    % NOTE: cast to double PER-ROI below (double(D.vol(roi))), never the
+    % whole volume — double(D.vol) is ~2.5 GB on a 1000-slice scan and only
+    % small ROIs are ever read. Same values, FOV-independent memory.
     vox = [abs(D.pixel_mm(1)) abs(D.pixel_mm(1)) abs(D.slice_spacing_mm)];
 
     cc = bwconncomp(mask_in, 26);
@@ -122,7 +124,7 @@ function [mask_out, info] = reconnect_via_vesselness_path(D, mask_in, opts)
         r0=max(1,min([ar;fr])-pad(1)); r1=min(sz(1),max([ar;fr])+pad(1));
         c0=max(1,min([ac;fc])-pad(2)); c1=min(sz(2),max([ac;fc])+pad(2));
         z0=max(1,min([az;fz])-pad(3)); z1=min(sz(3),max([az;fz])+pad(3));
-        sub = V(r0:r1, c0:c1, z0:z1);
+        sub = double(D.vol(r0:r1, c0:c1, z0:z1));
         szs = size(sub);
 
         % cost: low on bright + tubular
