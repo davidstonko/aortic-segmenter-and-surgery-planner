@@ -3357,9 +3357,16 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             % toolbar (32) + tool toolbar 1 (32) + tool toolbar 2 (32)
             % + gaps + 12 px top safety margin. Total reservation: 174.
             h = app.UIFigure.Position(4) - y0 - 102 - 72;
+            % Dark viewport — the clinical-workstation convention (PACS /
+            % TeraRecon). The CT sits on black anyway, so a dark canvas
+            % focuses the eye on the image and makes the letterbox margins
+            % + overlaid controls read as intentional rather than stranded
+            % on white. Overlays live on the image, so their contrast is
+            % unchanged; only labels that sit on this panel are lightened.
+            VIEWPORT_BG = [0.12 0.12 0.14];
             app.ImagePanel = uipanel(app.UIFigure, ...
                 'Position', [x0 y0 w h], ...
-                'BackgroundColor', 'w', 'BorderType', 'none');
+                'BackgroundColor', VIEWPORT_BG, 'BorderType', 'none');
             % Slider at the bottom of the image panel
             % Slice slider — hidden until a volume is loaded. The
             % placeholder `Limits [1 2]` and tick marks (1, 1.05, …, 2)
@@ -3374,10 +3381,11 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'Position', [50 50 w-100 22], ...
                 'Text', 'Load a CT to begin — choose a source in the Step 1 panel on the right →', ...
                 'HorizontalAlignment', 'center', 'FontSize', 12, ...
-                'FontColor', [0.45 0.45 0.50]);
+                'FontColor', [0.80 0.80 0.85]);   % light — sits on the dark viewport
             % Axes — leave room above for the slider
             app.MainAxes = uiaxes(app.ImagePanel, ...
-                'Position', [10 80 w-20 h-110]);
+                'Position', [10 80 w-20 h-110], ...
+                'Color', VIEWPORT_BG);
             app.MainAxes.XColor = [0.7 0.7 0.7];
             app.MainAxes.YColor = [0.7 0.7 0.7];
             app.MainAxes.XTick  = [];
