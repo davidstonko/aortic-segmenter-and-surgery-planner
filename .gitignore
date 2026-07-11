@@ -5,7 +5,12 @@
 # ---------------------------------------------------------------
 
 # --- Patient image data ----------------------------------------
-data/
+# Ignore everything under data/ EXCEPT the non-PHI AortaSeg24 class-label
+# map (a paper-derived id→name→pipeline_label table the code loads at
+# runtime; contains no patient data). Using data/* (not data/) so the
+# single-file re-include below is honoured.
+data/*
+!data/aortaseg24_class_map.json
 *.dcm
 *.DCM
 *.nii

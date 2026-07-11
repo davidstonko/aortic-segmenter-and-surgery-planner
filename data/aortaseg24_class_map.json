@@ -1,0 +1,31 @@
+{
+  "version": "1.1-paper-aligned",
+  "source": "AortaSeg24 challenge proceedings (Imran et al., Table 2 of arXiv:2502.05330) — 13 anatomic branches + 10 aortic zones",
+  "verified_against_dataset": false,
+  "notes": "Class names match the names listed in Table 2 of the AortaSeg24 challenge paper. The 1-based ID assignment (branches 1-13, zones 14-23) is INFERRED — the paper does not explicitly enumerate integer IDs. Before any Phase B backend goes live, the IDs MUST be re-verified against the actual ground-truth NIfTI label values from the AortaSeg24 dataset. The Zone-N → pipeline_label mapping below is also provisional and depends on the official zone-to-anatomy correspondence (likely Ishimaru-like aortic zoning, but not confirmed). Aortic wall and intraluminal thrombus are NOT in this dataset — AortaSeg24 segments lumen + branches only.",
+  "classes": [
+    {"id": 1,  "name": "innominate_artery",                "pipeline_label": 0, "comment": "thoracic, out of EVAR scope"},
+    {"id": 2,  "name": "left_common_carotid",              "pipeline_label": 0, "comment": "thoracic, out of EVAR scope"},
+    {"id": 3,  "name": "left_subclavian",                  "pipeline_label": 0, "comment": "thoracic, out of EVAR scope"},
+    {"id": 4,  "name": "celiac_artery",                    "pipeline_label": 8, "comment": ""},
+    {"id": 5,  "name": "superior_mesenteric_artery",       "pipeline_label": 9, "comment": ""},
+    {"id": 6,  "name": "left_renal_artery",                "pipeline_label": 6, "comment": ""},
+    {"id": 7,  "name": "right_renal_artery",               "pipeline_label": 7, "comment": ""},
+    {"id": 8,  "name": "left_common_iliac",                "pipeline_label": 2, "comment": ""},
+    {"id": 9,  "name": "right_common_iliac",               "pipeline_label": 3, "comment": ""},
+    {"id": 10, "name": "left_external_iliac",              "pipeline_label": 2, "comment": "merged with CIA for the pipeline; extend_to_cfa downstream"},
+    {"id": 11, "name": "right_external_iliac",             "pipeline_label": 3, "comment": "merged with CIA for the pipeline; extend_to_cfa downstream"},
+    {"id": 12, "name": "left_internal_iliac",              "pipeline_label": 0, "comment": "not in current pipeline scheme; could become label 12 if added"},
+    {"id": 13, "name": "right_internal_iliac",             "pipeline_label": 0, "comment": "not in current pipeline scheme; could become label 13 if added"},
+    {"id": 14, "name": "aortic_zone_0",                    "pipeline_label": 0, "comment": "provisional thoracic zone, out of EVAR scope; verify against challenge zone diagram"},
+    {"id": 15, "name": "aortic_zone_1",                    "pipeline_label": 0, "comment": "provisional thoracic; verify"},
+    {"id": 16, "name": "aortic_zone_2",                    "pipeline_label": 0, "comment": "provisional thoracic; verify"},
+    {"id": 17, "name": "aortic_zone_3",                    "pipeline_label": 0, "comment": "provisional thoracic; verify"},
+    {"id": 18, "name": "aortic_zone_4",                    "pipeline_label": 0, "comment": "provisional descending thoracic; verify"},
+    {"id": 19, "name": "aortic_zone_5",                    "pipeline_label": 1, "comment": "provisional suprarenal abdominal; verify"},
+    {"id": 20, "name": "aortic_zone_6",                    "pipeline_label": 1, "comment": "provisional pararenal; verify"},
+    {"id": 21, "name": "aortic_zone_7",                    "pipeline_label": 1, "comment": "provisional infrarenal neck; verify"},
+    {"id": 22, "name": "aortic_zone_8",                    "pipeline_label": 1, "comment": "provisional aneurysm sac; verify"},
+    {"id": 23, "name": "aortic_zone_9",                    "pipeline_label": 1, "comment": "provisional distal aorta to bifurcation; verify"}
+  ]
+}
