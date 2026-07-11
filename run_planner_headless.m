@@ -974,10 +974,14 @@ function b = branch_degenerate(Pv, prox_mm, cfa_mm)
 end
 
 function [seed_out, was_snapped] = snap_seed_to_largest_cc(seed, mask)
-%SNAP_SEED_TO_LARGEST_CC  If `seed` doesn't lie inside `mask`, move it
-%   to the nearest mask voxel. `mask` is assumed to be a single 3D-CC
-%   (caller already kept only the largest). Returns the (possibly
-%   relocated) seed and a flag indicating whether it was moved.
+%SNAP_SEED_TO_LARGEST_CC  If `seed` doesn't lie inside `mask`, move it to
+%   the nearest mask voxel. Since the label-aware Step-6b keep, `mask` may
+%   hold MORE than one 3D-CC (the largest plus any vessel-labeled
+%   fragment), so "nearest voxel" resolves to the nearest KEPT component —
+%   i.e. a CFA seed snaps onto the iliac/CFA fragment it belongs to even
+%   when that fragment is not the largest CC. Returns the (possibly
+%   relocated) seed and a flag indicating whether it was moved. (Name kept
+%   for call-site stability; it no longer targets only the largest CC.)
     seed_out = seed;
     was_snapped = false;
     if all(seed >= 1) && all(seed(:)' <= size(mask)) ...
