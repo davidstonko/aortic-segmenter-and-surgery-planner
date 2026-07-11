@@ -38,6 +38,19 @@ claim. On the AAA phantom (24 trials, ±3° / ±15% resample): neck Ø σ 0.013 
 `tests/test_measurement_reproducibility.m` (3): hysteresis rejects a lone
 spike; the band is tight on the phantom; rotation-only is invariant.
 
+**Step-3c HU-reconstruct: memory scaling for large-FOV CTA (GOALS #39).**
+Extracted the inline Step-3c grow from `run_planner_headless` into
+`autoseg.hu_reconstruct_shell`, which crops the work to the mask bounding
+box padded by the shell radius. The naive form allocated 4-5 full-
+resolution boolean volumes (contrast mask, shell, candidate, grown) over
+the ENTIRE scan — hundreds of M-voxels each on a 747-1063-slice runoff CTA
+even though the vessels span a fraction of the z-extent. The reconstruction
+is bounded to a shell around the mask, so the padded crop contains every
+voxel any full-volume op could set → output is bit-identical, memory now
+scales with the vessel sub-volume not the FOV. New tests
+`tests/test_hu_reconstruct_shell.m` (3) pin crop == full-volume reference
+(incl. boundary-clamp + empty-mask).
+
 ## 2026-06-16 — Generalization test on 2 new CTAs (FAILS) + 2 bug fixes
 
 Ran `run_planner_headless` end-to-end on two new out-of-cohort CTAs (deps live:
