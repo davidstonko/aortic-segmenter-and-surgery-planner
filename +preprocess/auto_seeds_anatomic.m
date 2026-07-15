@@ -70,6 +70,13 @@ function seeds = auto_seeds_anatomic(label_vol, D, opts, branch_labels)
     cid_liver = n2id('liver');
 
     M_aorta = (label_vol == cid_aorta);
+    if ~any(M_aorta(:)) && ~isempty(branch_labels)
+        % Pipeline-scheme caller (learned / external segmentation backend):
+        % label_vol carries pipeline ids, not TS class ids, so the aorta is
+        % label 1. TS callers still match cid_aorta above and never reach
+        % this fallback.
+        M_aorta = (branch_labels == 1);
+    end
     if ~any(M_aorta(:)); return; end
 
     slice_spacing = abs(D.slice_spacing_mm);

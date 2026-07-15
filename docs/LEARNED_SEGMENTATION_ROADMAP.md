@@ -245,18 +245,38 @@ labeled NIfTI masks pending real cases.
 **Deliverable:** an `nnUNet_results` checkpoint dir + training config, and the
 verified class map.
 
-## Phase 4 — Integration (mostly already wired)
+## Phase 4 — Integration (selector BUILT; weights are the only gap)
 
-- Point `+autoseg/+aortaseg24/detect.m` at the checkpoint
-  (`AORTASEG24_MODEL_DIR` / `nnUNet_results/Dataset…`). `run.m` →
-  NIfTI → `nnUNetv2_predict` → `translate_labels` → pipeline mask. **No MATLAB
-  changes** beyond the class-map verification (GOALS #26 B1).
-- Add `opts.seg_backend ∈ {totalsegmentator, learned, auto}` to
-  `run_planner_headless` + the GUI Step-2 mode (mirror the centerline-backend
-  selector). The learned mask flows into the **same** centerline →
-  measurement → IFU path, so the whole planner benefits with one swap.
+- **`opts.seg_backend` selector — BUILT.** `run_planner_headless` now takes
+  `opts.seg_backend ∈ {auto, totalsegmentator, learned, external}` via
+  [`autoseg.resolve_seg_backend`](../+autoseg/resolve_seg_backend.m) (mirrors
+  `centerline_backend`). Default `totalsegmentator` — **zero behaviour change**
+  for existing callers. The learned/external mask flows into the **same**
+  seeds → centerline → measurement → IFU path (the six TS-specific
+  build/repair steps are skipped; the provided segmentation is trusted).
+  `auto` uses the learned nnU-Net when weights are present, else TS.
+- **`external` backend — usable TODAY, no model needed.** Point
+  `opts.seg_label_nifti` at a pipeline-scheme label NIfTI (with
+  `opts.seg_class_map = data/setA_class_map.json` if it is an SOP-painted
+  Set-A mask) and the **full planner runs on a hand-annotated segmentation**.
+  This means the annotation cohort can be planned and measured *before* any
+  model is trained — and it is the exact code path a learned nnU-Net will use
+  (it writes the same NIfTI). Covered by `tests/test_seg_backend.m` (7/7,
+  synthetic).
+- **`learned` backend** — `run.m` → NIfTI → `nnUNetv2_predict` →
+  `translate_labels` → pipeline mask, adopted directly. Errors cleanly
+  (`Phase_B_needs_weights`) until a checkpoint exists; point
+  `AORTASEG24_MODEL_DIR` at it and `auto`/`learned` execute end-to-end with
+  **no further MATLAB changes** (GOALS #26 B1).
+- Small enabling fix: `preprocess.auto_seeds_anatomic` now falls back to the
+  pipeline aorta label (1) when the label volume isn't in TS ids — so
+  learned/external label volumes seed correctly. TS path unchanged.
 
-**Deliverable:** backend selector + a learned-seg run on a held-out case.
+**Remaining:** the GUI Step-2 dropdown (headless is done); a learned-seg run on
+a held-out case once weights exist.
+
+**Deliverable:** ✅ backend selector + external-mask path (tested); learned run
+pending weights.
 
 ## Phase 5 — Validation & closing the open goals
 

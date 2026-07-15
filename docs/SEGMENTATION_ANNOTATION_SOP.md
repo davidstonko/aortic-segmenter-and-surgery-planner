@@ -143,6 +143,20 @@ best off-axial.
 
   Confirm aorta=1, iliacs=2/3, CFAs=4/5, renals=6/7, celiac=8, SMA=9, and that
   the arterial mask spans aorta→CFA. Eyeball it in `AorticCenterlineApp`.
+- **Run the full planner on your annotation — no model needed.** The
+  `external` segmentation backend feeds a labelled NIfTI straight into the
+  centerline → measurement → IFU pipeline:
+
+  ```matlab
+  out = run_planner_headless('', struct( ...
+      'D', preprocess.dicom_load('<codename>_dicom_dir'), ...   % or pass the CT
+      'seg_backend',    'external', ...
+      'seg_label_nifti','<codename>_segA.nii.gz', ...
+      'seg_class_map',  fullfile('data','setA_class_map.json')));  % SOP paint-IDs → pipeline
+  ```
+
+  So every annotated case can be planned and measured *now*, before any model
+  exists — and this is the exact path the trained nnU-Net will use.
 - Keep `<codename>_segA.nii.gz` in the **regulated store**, never the repo
   (`.gitignore` blocks `*.nii`).
 
