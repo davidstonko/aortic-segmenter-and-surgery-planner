@@ -85,6 +85,13 @@ function out = run_planner_headless(dicom_dir, opts)
     % Voronoi/fast-marching centerline that matches TeraRecon's algorithm;
     % the MATLAB path is a pure-MATLAB fallback with no external deps.
     if ~isfield(opts, 'centerline_backend'); opts.centerline_backend = 'auto'; end
+    % Segmentation-only mode: build the full connected mask + seeds (all of
+    % the branch / CFA-extension / HU-reconstruct / reconnect / keep-CC
+    % steps) and return BEFORE the VMTK centerline. The GUI's step-by-step
+    % "Run segmentation only" uses this so its mask matches the one-click
+    % pipeline's (its own lighter path left the aorta disconnected from the
+    % CFAs and collapsed the centerline).
+    if ~isfield(opts, 'skip_centerline'); opts.skip_centerline = false; end
     if ~isfield(opts, 'out_dir')
         opts.out_dir = fullfile('results', 'logs', ...
             sprintf('headless_%s', datestr(now, 'yyyymmdd_HHMMSS'))); %#ok<DATST,TNOW1>
@@ -633,6 +640,22 @@ function out = run_planner_headless(dicom_dir, opts)
     seeds_mm.proximal  = voxel_to_mm(seeds.proximal,  D);
     seeds_mm.right_cfa = voxel_to_mm(seeds.right_cfa, D);
     seeds_mm.left_cfa  = voxel_to_mm(seeds.left_cfa,  D);
+
+    % Segmentation-only early return (see opts.skip_centerline above). The
+    % mask + seeds + branch labels are fully built at this point; skip the
+    % VMTK centerline and hand back a mask-only result the GUI can inject.
+    if opts.skip_centerline
+        out = struct('seeds', seeds, 'seeds_mm', seeds_mm, 'mask', mask, ...
+            'Pv_mm_right', [], 'R_mm_right', [], ...
+            'Pv_mm_left',  [], 'R_mm_left',  [], ...
+            'arc_R_mm', NaN, 'arc_L_mm', NaN, ...
+            'centerline_backend', 'skipped', 'timing', timing, ...
+            'out_dir', opts.out_dir, 'ts_info', info);
+        if exist('label_branch', 'var'); out.label_branch = label_branch; end
+        out.D = D;
+        if exist('audit', 'var'); out.audit = audit; end
+        return;
+    end
 
     % --- Optional centerline disk cache --------------------------------
     % VMTK's Voronoi/fast-marching pass is the slow step (~1 min). Cache
