@@ -11,12 +11,23 @@
 # single-file re-include below is honoured.
 data/*
 !data/aortaseg24_class_map.json
+!data/setA_class_map.json
 *.dcm
 *.DCM
 *.nii
 *.nii.gz
 *.NII
 *.NII.GZ
+
+# --- Phase-0 intake outputs (regulated store, never the repo) ---
+# De-identified DICOM copies and the cohort provenance manifest. The
+# manifest is PHI-free by construction (codename + geometry + labels),
+# but a real-cohort manifest is still sensitive institutional data and
+# belongs in the IRB store, not the public tree. Defense in depth.
+*_deid/
+**/*__QUARANTINE_FAILED/
+cohort_manifest.csv
+**/cohort_manifest.csv
 
 # --- Runtime artefacts (may embed PHI) -------------------------
 # Cached pipeline results carry the source DICOM header (PatientName,
