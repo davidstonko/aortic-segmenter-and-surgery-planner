@@ -1,9 +1,43 @@
 # Learned Segmentation Roadmap — from IRB CTAs to a model that generalizes
 
-**Status:** planning (2026-07-11). IRB approved; real CTAs now collectable.
+**Status:** planning; strategy refined 2026-07-15 (was 2026-07-11). IRB
+approved; real CTAs now collectable.
 **Goal:** replace HU-threshold segmentation with a *learned* vessel
 segmentation so the planner works on **any** contrast CTA — not just the two
 tuned cases — and, later, segments **wall + thrombus** for true sac sizing.
+
+## Guiding principles (the strategy, in five decisions)
+
+These are settled and drive every phase below.
+
+1. **Transfer learning, not from scratch.** Warm-start from an existing
+   aorta-aware model (TotalSegmentator / nnU-Net) and fine-tune. A cold
+   nnU-Net can ultimately win on a well-defined task, but transfer de-risks
+   us and gets a working model with *far less* annotation. From-scratch is
+   the fallback if licensing blocks the warm start (feasible at our N).
+2. **Match the imaging *distribution*, not the file container.** DICOM vs
+   NIfTI is irrelevant once loaded — the network learns from normalized voxel
+   intensities, and nnU-Net's preprocessing (HU windowing, normalization,
+   resampling) harmonizes across sources. What actually matters: **contrast
+   phase (arterial CTA), resolution / slice thickness, scanner, and pathology
+   appearance** (thrombus, calcification, endograft). CT is forgiving here
+   because HU is physically standardized.
+3. **Own institutional CTAs are the *foundation*.** Bootstrap labels on our
+   own historical archive (TotalSegmentator / nnInteractive prelabel → expert
+   correct → fine-tune). Our archive is a perfect distribution match *by
+   construction* — same scanners, protocols, contrast timing, patient
+   population. This is the cleanest answer to "don't learn from dissimilar
+   source data."
+4. **Public data is supplementary / external validation, *not* the
+   foundation.** If used for training at all, filter strictly to
+   contrast-enhanced aneurysm CTA. Its primary job is **distribution-shift
+   assessment** on a held-out external set. Candidates and their fit are
+   catalogued in [`datasets.md`](datasets.md).
+5. **Label-space consistency is mandatory when combining sources.** Whole-
+   aorta vs 23-zone schemas are *not* interchangeable. Harmonize everything
+   to one scheme (or relabel via TotalSegmentator) **before** mixing — the
+   `aortaseg24_class_map.json` + `translate_labels` path is exactly this
+   harmonization layer.
 
 ## Why this is the next phase
 
@@ -70,20 +104,33 @@ this airtight before any image leaves the scanner archive.
 
 ## Phase 1 — Cohort design
 
-Aim for **60–100 CTAs** to start (nnU-Net trains well on 40–80 quality
-annotations; more helps the tail). Design for *coverage of failure modes*,
-not just typical anatomy:
+The cohort is **our own institutional CTAs** (principle 3). Aim for **60–100**
+to start (nnU-Net trains well on 40–80 quality annotations; more helps the
+tail). Design for *coverage of failure modes*, not just typical anatomy:
 
 - Normal infrarenal aorta (baseline).
 - Infrarenal AAA, **thrombus-laden** (needed for the wall/ILT labelset).
-- Post-EVAR (endograft artifact — a distinct appearance).
-- **Deliberately hard cases**: low iliac contrast, fragmented/ tortuous
+- **Deliberately hard cases**: low iliac contrast, fragmented / tortuous
   iliacs, large-FOV runoff (747–1063 slice), poor bolus timing — the exact
   cases the heuristic pipeline fails on. These are the point.
 - Patient-level **train/val/test split** ~70/15/15, stratified by pathology.
   No same-patient leakage across splits.
 
-**Deliverable:** the manifest's `split` + `pathology` columns populated.
+**Pre-op vs post-op — scope pre-op first (recommended).** Stent-graft /
+post-EVAR CTAs have a *very* different appearance (endograft metal, beam-
+hardening, endoleak). Mixing them into the initial training set adds a hard
+sub-distribution and dilutes the label budget. **Recommendation:** scope the
+first model to **pre-op contrast CTA**; collect a small post-EVAR set but
+hold it out as a labelled distribution-shift probe, and only train a
+dedicated post-EVAR variant later if the planner needs surveillance sizing.
+(This is an open decision — see the list at the end.)
+
+**External validation set.** Reserve one public contrast-CTA cohort
+(e.g. AortaSeg-60) *untouched* by training, purely to measure distribution
+shift in Phase 5. See [`datasets.md`](datasets.md).
+
+**Deliverable:** the manifest's `split` + `pathology` + `phase (pre/post-op)`
+columns populated.
 
 ## Phase 2 — Annotation (the "learn to read/segment" core)
 
@@ -97,11 +144,22 @@ This is where reading skill is built and encoded.
   - *Set B (sac sizing):* aortic **outer wall** + **ILT/thrombus** — the
     classes no public dataset provides. Annotate on the AAA subset.
 - **Workflow (prelabel → correct → QC):**
-  1. TotalSegmentator auto-prelabel (cheap first pass).
+  1. TotalSegmentator (or **nnInteractive** in 3D Slicer) auto-prelabel —
+     cheap first pass.
   2. Manual correction in **3D Slicer** (or ITK-SNAP/MITK) — this is the
      operator learning to segment. The app's own brush/scalpel editor can do
      touch-ups, but Slicer is better for full volumes.
   3. Second-reader QC on a sample; track inter-rater **Dice ≥ 0.9** on lumen.
+- **Active-learning order (which cases to correct first).** Don't annotate in
+  arbitrary order — spend the budget where the model is weakest:
+  1. Seed with ~15–20 *typical* cases (fast, high-quality) to fine-tune a v0.
+  2. Run v0 over the un-annotated pool; **prioritise the cases where v0 is
+     least confident / most disagrees with the TotalSegmentator prelabel**
+     (high-entropy, high surface-distance). These are the failure modes.
+  3. Correct that batch, re-fine-tune, repeat. This front-loads the hard
+     iliac / low-contrast cases the heuristic pipeline already fails on and
+     reaches reliable generalization with fewer total corrections than
+     labelling everything blindly.
 - **Protocol SOP** (extend the TeraRecon guide style): define each class,
   boundary rules (lumen vs wall, CIA/EIA/CFA transition at the internal-iliac
   takeoff and inguinal ligament), and the thrombus/wall convention.
@@ -114,12 +172,22 @@ This is where reading skill is built and encoded.
   the target of the `+aortaseg24` backend (`nnUNetv2_predict`). The
   AortaSeg24 public *training* code (Apache-2.0 nnU-Net recipe) bootstraps
   the config.
-- **Strategy:** two models — Set A (lumen+branches, all cases) and Set B
-  (wall+ILT, AAA subset). Fine-tune from TotalSegmentator/AortaSeg24 weights
-  where licensing allows; else train from scratch (feasible at this N).
+- **Strategy:** **transfer-learning-first** (principle 1) — warm-start from
+  TotalSegmentator / nnU-Net aorta weights and fine-tune on our labelled
+  cohort. Two models: Set A (lumen+branches, all cases) and Set B (wall+ILT,
+  AAA subset). Train from scratch only if licensing blocks the warm start
+  (feasible at this N).
 - **Compute:** one modern GPU (≥24 GB, e.g. RTX 4090/A100). nnU-Net 3d_fullres
-  ≈ hours-to-1-day per fold; 5-fold CV. Cloud A100 if no local GPU.
-- **Loss/eval:** nnU-Net defaults (Dice+CE); 5-fold CV; report per-class Dice.
+  ≈ hours-to-1-day per fold; 5-fold CV. Cloud A100 if no local GPU. *(Local
+  vs cloud is an open decision — see the list at the end.)*
+- **Loss/eval:** nnU-Net defaults (Dice+CE); 5-fold CV; report per-class Dice
+  **and NSD** (normalized surface Dice — boundary-sensitive, which matters
+  more for sizing than volumetric overlap).
+- **MATLAB↔Python handoff.** Segmentation lives in Python (nnU-Net); the
+  planner is MATLAB. The contract is a **NIfTI mask on disk** — Python writes
+  the label volume, `+autoseg/+aortaseg24/run.m` reads it back via
+  `translate_labels`. No in-process bridge; the file is the interface, which
+  keeps the two ecosystems cleanly decoupled and reproducible.
 
 **Deliverable:** an `nnUNet_results` checkpoint dir + training config, and the
 verified class map.
@@ -139,10 +207,22 @@ verified class map.
 
 ## Phase 5 — Validation & closing the open goals
 
-- **Segmentation:** Dice / HD95 per class on the held-out test set.
+Evaluate on **two axes**: voxel-overlap metrics *and* the clinically
+meaningful endpoints — overlap alone does not guarantee correct sizing.
+
+- **Segmentation (overlap):** Dice / HD95 **/ NSD** per class on the held-out
+  own-institution test set.
+- **Clinical endpoints (the ones that matter):** **max aortic diameter
+  error, neck length error, sac volume error** vs the TeraRecon reference —
+  reported in mm/mL, not just Dice. A model can score high Dice and still
+  miss a landing-zone diameter by a clinically relevant margin; these are the
+  real acceptance criteria.
 - **Generalization (#41):** re-run the previously-failing cases → target
   **N/N centerlines** that span aorta→CFA, `qc.usable` true. This is the
   headline success metric.
+- **Distribution shift:** run the *untouched external* public set (Phase 1)
+  and report the Dice/endpoint drop vs the internal test set — an honest
+  measure of how far the model travels beyond our scanners.
 - **Sac sizing (#37 / B2):** with Set B, measure **outer-wall** sac Ø and
   validate lumen-vs-wall against TeraRecon (measure wall in TeraRecon too).
 - **Measurement accuracy (#5):** enter TeraRecon reference measurements into
@@ -167,13 +247,25 @@ everything and is pure engineering.
 
 ## Key decisions to make up front
 
-1. **How many cases / who annotates?** Sets the timeline. Even 40 well-
-   labeled cases beat 100 noisy ones.
-2. **Wall/ILT now or later?** #37 deferred it to "the very end." Recommend
-   annotating Set A first (closes generalization, the bigger win) and Set B
-   on the AAA subset in parallel if annotation bandwidth allows.
-3. **Compute:** local GPU vs cloud. Determines cost and iteration speed.
-4. **Annotation tool:** 3D Slicer (recommended) vs extending the app's editor.
+1. **Label schema / granularity.** Binary lumen vs multi-class
+   (lumen / ILT / wall / calcium) vs branch+zone — driven by intended
+   clinical use. *Recommendation:* Set A = lumen + branches + zones first
+   (closes generalization, the bigger win); add Set B = wall + ILT (+ mural
+   calcium if cheap) on the AAA subset. Calcium is a near-free extra class on
+   CT (it's a HU threshold inside the wall band) worth grabbing during Set B.
+2. **How many cases / who annotates?** Sets the timeline. Even 40 well-
+   labeled cases beat 100 noisy ones. Pair with the active-learning order in
+   Phase 2 so the budget lands on the hard cases.
+3. **Pre-op vs post-op scope.** *Recommendation:* pre-op first; hold a small
+   post-EVAR set out as a shift probe (Phase 1).
+4. **Wall/ILT now or later?** #37 deferred it to "the very end." Recommend
+   annotating Set A first and Set B on the AAA subset in parallel if
+   annotation bandwidth allows.
+5. **Compute:** local GPU vs cloud. Determines cost and iteration speed.
+6. **Annotation tool:** 3D Slicer (recommended) vs extending the app's editor.
+7. **Evaluation contract.** Overlap (Dice/NSD/HD95) **+** clinical endpoints
+   (max Ø, neck length, sac volume in mm/mL). Agreed as the acceptance bar
+   (Phase 5).
 
 ---
 *RESEARCH USE ONLY. This roadmap governs a research pipeline, not a
