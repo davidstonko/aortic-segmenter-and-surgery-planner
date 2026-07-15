@@ -92,24 +92,51 @@ AortaSeg24 has **no public checkpoint** and segments lumen+branches only
 The IRB approval permits collection; it does **not** relax PHI handling. Get
 this airtight before any image leaves the scanner archive.
 
-- **De-identify at intake.** Run every study through a DICOM de-id profile
-  (DICOM PS3.15 Basic Application Level Confidentiality) — strip PatientName,
-  PatientID/MRN, DOB, AccessionNumber, StudyDate/Time (or jitter dates
-  consistently per patient), InstitutionName, ReferringPhysician, device
-  serials, and private tags. Tools: `pydicom` + `dicognito`/`dicom-anonymizer`,
-  or RSNA CTP for batch. **CTAs are abdomen/pelvis, so facial defacing is not
-  needed**, but verify FOV never includes the face.
-- **Codename scheme.** Reuse the `JohnDoeN` convention. The codename↔real-ID
-  key is IRB-controlled: keep it **offline / in the regulated store**, never
-  in the repo or the working tree. (The repo's `.gitignore` already blocks
-  `data/`, `*.dcm`, `*.nii`, non-phantom `*.mat`.)
-- **Provenance manifest.** A de-identified CSV: codename, scanner/protocol,
-  contrast phase, slice thickness, FOV, pathology label, split assignment.
-- **Storage.** Raw de-id DICOM + NIfTI conversions in the IRB-approved
-  location; only derived, non-PHI artifacts (metrics, figures, model configs)
-  ever go near the repo.
+**Status: BUILT** — the `+intake/` package (`intake.deidentify_intake`,
+`intake.verify_deid`, `intake.append_manifest`) implements this phase, with
+`tests/test_deidentify_intake.m` proving it on synthetic DICOM (6/6 green).
+Run it on real patient DICOM **only inside the regulated environment**; the
+repo and its tests use synthetic DICOM exclusively.
 
-**Deliverable:** a `deidentify_intake` script + the provenance manifest.
+- **De-identify at intake.** `intake.deidentify_intake(SRC, 'JohnDoeN')` copies
+  the study (never mutating the source), scrubs PHI on the copy, and re-maps
+  identifiers to the codename. Two scrub engines:
+  - **`dicomanon` (default)** — MATLAB-native (Image Processing Toolbox,
+    DICOM PS3.15 Basic Confidentiality Profile), **no Python**, so it is
+    portable and CI-testable. It generates consistent new Study/Series/SOP
+    UIDs so the volume still loads as one series, and (a gap the profile
+    leaves open) explicitly blanks Study/Series/Acquisition **dates + times**,
+    which `dicomanon` otherwise keeps — a residual `StudyDate` is a
+    re-identification vector.
+  - **`dicognito`** — via the existing `preprocess.anonymize_dicom_dir` wrapper,
+    for **cohort-consistent UID re-mapping** across many studies. Reserve for
+    when cross-study UID relationships must be preserved.
+  **CTAs are abdomen/pelvis, so facial defacing is not needed**, but verify FOV
+  never includes the face.
+- **Independent verification is the gate.** `intake.verify_deid` re-reads the
+  *output* headers and, using the originals held **in memory only** (never
+  written), proves every direct-identifier tag is gone or changed — it does not
+  trust the tool that did the scrub. Any residual PHI **quarantines** the output
+  (`*__QUARANTINE_FAILED`) and aborts; nothing reaches the manifest.
+- **Codename scheme.** Reuse the `JohnDoeN` convention — enforced by regex, so a
+  real name passed by mistake is rejected at the door. The codename↔real-ID key
+  is IRB-controlled: it is **never produced or written** by the tool; keep it
+  offline / in the regulated store. (The repo's `.gitignore` already blocks
+  `data/`, `*.dcm`, `*.nii`, non-phantom `*.mat`.)
+- **Provenance manifest.** `intake.append_manifest` writes a de-identified CSV
+  (codename, modality, manufacturer/model, series description, geometry
+  [rows/cols/slices/pixel spacing/slice thickness/FOV], contrast phase,
+  pathology, phase, split, engine, n_files, UTC stamp). A field *named* like a
+  patient identifier is refused, so the manifest is de-identified by
+  construction. One row per study, appended.
+- **Storage.** Point `opts.out_root` at the IRB-approved location. Raw de-id
+  DICOM (and NIfTI conversions — see below) live there; only derived, non-PHI
+  artifacts (metrics, figures, model configs) ever go near the repo.
+
+**Deliverable:** ✅ `intake.deidentify_intake` + `verify_deid` +
+`append_manifest` + tests. **Follow-up:** a `dcm2niix` conversion hook so
+intake also emits the training-ready NIfTI (the `+library/+aortaseg24` loader
+already ingests NIfTI once produced).
 
 ## Phase 1 — Cohort design
 
@@ -169,11 +196,17 @@ This is where reading skill is built and encoded.
      iliac / low-contrast cases the heuristic pipeline already fails on and
      reaches reliable generalization with fewer total corrections than
      labelling everything blindly.
-- **Protocol SOP** (extend the TeraRecon guide style): define each class,
-  boundary rules (lumen vs wall, CIA/EIA/CFA transition at the internal-iliac
-  takeoff and inguinal ligament), and the thrombus/wall convention.
+- **Protocol SOP — BUILT.** [`docs/SEGMENTATION_ANNOTATION_SOP.md`](SEGMENTATION_ANNOTATION_SOP.md)
+  defines each Set-A class, the lumen-only rule (no wall/ILT/mural calcium), the
+  aorta↔CIA↔EIA↔CFA transitions (internal-iliac takeoff, inferior-epigastric /
+  inguinal-ligament landmark), the Slicer prelabel→correct workflow, the
+  round-trip check, and intra-rater QC. Its machine-readable label spec is
+  [`data/setA_class_map.json`](../data/setA_class_map.json) — paint IDs 4–13
+  equal the AortaSeg24 raw IDs (shared label space), + aorta(1) and CFAs(24/25);
+  verified to round-trip through `translate_labels` into the pipeline scheme.
 
-**Deliverable:** `docs/SEGMENTATION_ANNOTATION_SOP.md` + labeled NIfTI masks.
+**Deliverable:** ✅ `docs/SEGMENTATION_ANNOTATION_SOP.md` + `setA_class_map.json`;
+labeled NIfTI masks pending real cases.
 
 ## Phase 3 — Model training (nnU-Net v2)
 

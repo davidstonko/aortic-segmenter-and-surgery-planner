@@ -1,0 +1,21 @@
+{
+  "version": "0.1-setA-draft",
+  "source": "EVAR planner Set-A annotation SOP (docs/SEGMENTATION_ANNOTATION_SOP.md). The scheme the solo annotator paints in 3D Slicer for own-institution pre-op CTAs.",
+  "verified_against_dataset": false,
+  "notes": "Set A = lumen + branches (generalization fix, GOAL #41). NOT wall/ILT (that is Set B, GOAL #37). Paint IDs 4-13 deliberately equal the AortaSeg24 raw ids for the abdominal branches so our own annotations and the public dataset share one label space (roadmap principle 5); id 1 (abdominal aorta lumen, painted as ONE label rather than AortaSeg24's zones 19-23) and ids 24/25 (common femorals, which AortaSeg24 lacks) are additions. pipeline_label maps into the app scheme 1=aorta 2/3=iliacs 4/5=CFAs 6/7=renals 8=celiac 9=SMA. Internal iliacs (12/13) are painted for completeness but map to 0 until the pipeline gains labels 12/13. BEFORE training, load one finished mask through autoseg.aortaseg24.translate_labels with THIS map and eyeball it in the GUI to confirm the ids round-trip.",
+  "classes": [
+    {"id": 1,  "name": "abdominal_aorta_lumen",  "pipeline_label": 1, "comment": "diaphragmatic hiatus/celiac-2cm down to the aortic bifurcation; contrast lumen only, excludes wall + thrombus"},
+    {"id": 4,  "name": "celiac_artery",           "pipeline_label": 8, "comment": "proximal trunk ~2-3 cm from origin only"},
+    {"id": 5,  "name": "superior_mesenteric_artery", "pipeline_label": 9, "comment": "proximal trunk only; SMA origin is the lower infrarenal-neck reference"},
+    {"id": 6,  "name": "left_renal_artery",       "pipeline_label": 6, "comment": "ostium + proximal ~1-2 cm, stop before hilar branching"},
+    {"id": 7,  "name": "right_renal_artery",      "pipeline_label": 7, "comment": "ostium + proximal ~1-2 cm"},
+    {"id": 8,  "name": "left_common_iliac",       "pipeline_label": 2, "comment": "aortic bifurcation -> internal iliac (hypogastric) origin"},
+    {"id": 9,  "name": "right_common_iliac",      "pipeline_label": 3, "comment": "aortic bifurcation -> internal iliac origin"},
+    {"id": 10, "name": "left_external_iliac",     "pipeline_label": 2, "comment": "internal iliac origin -> inferior epigastric a. (inguinal ligament); merges to pipeline iliac"},
+    {"id": 11, "name": "right_external_iliac",    "pipeline_label": 3, "comment": "internal iliac origin -> inferior epigastric a."},
+    {"id": 12, "name": "left_internal_iliac",     "pipeline_label": 0, "comment": "painted to first division only; not yet in pipeline scheme (could become 12)"},
+    {"id": 13, "name": "right_internal_iliac",    "pipeline_label": 0, "comment": "not yet in pipeline scheme (could become 13)"},
+    {"id": 24, "name": "left_common_femoral",     "pipeline_label": 4, "comment": "inferior epigastric a. -> femoral bifurcation (SFA/profunda); the distal EVAR access/seal landmark"},
+    {"id": 25, "name": "right_common_femoral",    "pipeline_label": 5, "comment": "inferior epigastric a. -> femoral bifurcation"}
+  ]
+}

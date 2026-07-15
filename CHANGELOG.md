@@ -2,6 +2,60 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-15 — Phase 0 built: DICOM de-identification intake + provenance manifest
+
+Implemented the learned-segmentation roadmap's **Phase 0** (the blocking,
+PHI-governance gate that unblocks annotation and cloud training). New
+`+intake/` package:
+
+- **`intake.deidentify_intake(SRC, 'JohnDoeN', opts)`** — copies a raw study
+  (never mutating the source), scrubs PHI on the copy, independently verifies
+  the result, and appends a de-identified provenance row. Two scrub engines:
+  - **`dicomanon` (default)** — MATLAB-native (Image Processing Toolbox, DICOM
+    PS3.15 Basic Confidentiality Profile), **no Python dependency**, so it is
+    portable and CI-testable. Generates consistent new Study/Series/SOP UIDs
+    (volume still loads as one series) and explicitly blanks Study/Series/
+    Acquisition **dates + times** — a gap `dicomanon` leaves open and a real
+    re-identification vector.
+  - **`dicognito`** — via the existing `preprocess.anonymize_dicom_dir` wrapper,
+    for cohort-consistent UID re-mapping across studies.
+- **`intake.verify_deid`** — the safety gate. Re-reads the *output* headers and
+  proves every direct-identifier tag (PatientName/ID, DOB, accession,
+  institution, physicians, device serials, study dates, private tags) is gone
+  or changed, using the originals held **in memory only** (never persisted). It
+  does not trust the scrub engine — it verifies the result. Any residual PHI
+  **quarantines** the output (`*__QUARANTINE_FAILED`) and aborts before the
+  manifest is touched.
+- **`intake.append_manifest`** — one de-identified CSV row per study (codename +
+  scanner/geometry + user labels: contrast phase, pathology, pre/post-op, split,
+  engine, n_files, UTC). Guard rails refuse a non-`JohnDoeN` codename and any
+  field *named* like a patient identifier, so the manifest is de-identified by
+  construction. The codename↔real-ID key is **never produced or written**.
+- **`tests/test_deidentify_intake.m`** — 6 tests on synthetic DICOM (no patient
+  data): full clean intake + manifest, planted-PHI never survives, source
+  untouched, volume still loads, manifest appends across studies, guard rails
+  reject real names / PHI fields, and verify flags a dirty folder. **6/6 green.**
+
+Roadmap Phase 0 marked **BUILT**.
+
+Also this session (continuing "keep working"):
+
+- **NIfTI hook** added to `intake.deidentify_intake` (`opts.to_nifti`): after a
+  clean verify + manifest, optionally converts the de-identified DICOM to
+  training-ready NIfTI via `dcm2niix`. **Non-fatal** — a missing binary warns
+  and returns empty `nifti_paths`; the de-identification (the deliverable) still
+  succeeds. Covered by a graceful-skip test (suite now **7/7**).
+- **Phase 2 SOP built.** [`docs/SEGMENTATION_ANNOTATION_SOP.md`](docs/SEGMENTATION_ANNOTATION_SOP.md)
+  — the Set-A (lumen + branches) annotation protocol for the solo annotator:
+  per-class definitions, the lumen-only rule (no wall/ILT/mural calcium), the
+  aorta↔CIA↔EIA↔CFA boundary landmarks, the 3D-Slicer prelabel→correct→QC
+  workflow, active-learning order, and a per-case checklist. Its machine-readable
+  spec is the new [`data/setA_class_map.json`](data/setA_class_map.json) (paint
+  IDs 4–13 = AortaSeg24 raw IDs for a shared label space, + aorta 1 and CFAs
+  24/25), **verified to round-trip** through `autoseg.aortaseg24.translate_labels`
+  into the pipeline scheme. `.gitignore` updated to ship the map + block intake
+  outputs (`*_deid/`, quarantine dirs, `cohort_manifest.csv`).
+
 ## 2026-07-15 — Learned-segmentation strategy refined in the roadmap
 
 Folded a deep-learning segmentation design discussion into the planning docs
