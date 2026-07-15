@@ -24,6 +24,10 @@ Folded a deep-learning segmentation design discussion into the planning docs
   distribution-shift report.
 - Key-decisions list expanded (label granularity, pre/post-op, evaluation
   contract).
+- **Locked configuration** table added: Set A only, pre-op-first (+ post-EVAR
+  shift probe), solo part-time annotator, Apple Silicon M1 compute — with a
+  Phase-3 reality-check that nnU-Net *training* needs CUDA (rent cloud GPU;
+  keep annotation/prelabel/inference/planner local on the M1).
 
 `docs/datasets.md`: public-data role reframed (external validation, not
 foundation; filter to contrast-enhanced aneurysm CTA); AortaSeg24 role #2
