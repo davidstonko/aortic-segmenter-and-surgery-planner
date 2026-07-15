@@ -108,6 +108,9 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             s = struct('proximal', app.SeedProximal, ...
                        'right_cfa', app.SeedRightCFA, 'left_cfa', app.SeedLeftCFA);
         end
+        function loadAortaSegCasePublic(app, ct_path, label_path)
+            loadAortaSegCase(app, ct_path, label_path);
+        end
         function setGrowTolPublic(app, hu); app.GrowTolHU = max(5, round(hu)); end
         function g = getGrowTolPublic(app); g = app.GrowTolHU; end
         function n = maskVoxelCountPublic(app); n = nnz(app.Mask); end
@@ -141,6 +144,8 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'MenuSelectedFcn', @(~,~) openCached(app));
             uimenu(m, 'Text', 'Open phantom from library…', ...
                 'MenuSelectedFcn', @(~,~) openPhantom(app));
+            uimenu(m, 'Text', 'Open AortaSeg case (CT + label)…', ...
+                'MenuSelectedFcn', @(~,~) openAortaSegCase(app));
             uimenu(m, 'Text', 'Open recent…', ...
                 'MenuSelectedFcn', @(~,~) openRecent(app));
             uimenu(m, 'Text', 'Load project…', 'Separator', 'on', ...
@@ -151,6 +156,42 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'MenuSelectedFcn', @(~,~) saveSnapshot(app));
             uimenu(m, 'Text', 'Close window', 'Separator', 'on', ...
                 'MenuSelectedFcn', @(~,~) delete(app));
+        end
+
+        function openAortaSegCase(app)
+            % File > Open AortaSeg case — pick a CT NIfTI + its label NIfTI
+            % and ingest via the library.aortaseg24 loader (a real reference
+            % case, same injection path as a phantom).
+            [cf, cp] = uigetfile({'*.nii;*.nii.gz', 'NIfTI CT (*.nii, *.nii.gz)'}, ...
+                'Select the CT NIfTI');
+            if isequal(cf, 0); return; end
+            [lf, lp] = uigetfile({'*.nii;*.nii.gz', 'NIfTI label (*.nii, *.nii.gz)'}, ...
+                'Select the segmentation label NIfTI', cp);
+            if isequal(lf, 0); return; end
+            loadAortaSegCase(app, fullfile(cp, cf), fullfile(lp, lf));
+        end
+
+        function loadAortaSegCase(app, ct_path, label_path)
+            % Load + inject an AortaSeg CT/label pair. Dialog-free core, so
+            % it's scriptable/testable (openAortaSegCase adds the pickers).
+            d = uiprogressdlg(app.UIFigure, 'Title', 'Loading AortaSeg case…', ...
+                'Message', 'Reading CT + segmentation NIfTI…', 'Indeterminate', 'on');
+            try
+                C = library.aortaseg24.load_case(ct_path, label_path);
+                close(d);
+                injectCT(app, C.D);
+                injectMask(app, C.mask);
+                if isfield(C, 'label_branch') && ~isempty(C.label_branch) ...
+                        && isequal(size(C.label_branch), size(app.Mask))
+                    app.MaskLabel = uint8(C.label_branch);
+                end
+                updateStep(app, 2);
+                setViewMode(app, '3dvol');
+                refreshMain(app);
+            catch ME
+                close(d);
+                uialert(app.UIFigure, ME.message, 'AortaSeg load failed');
+            end
         end
 
         function buildHelpMenu(app)

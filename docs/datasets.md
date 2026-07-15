@@ -149,7 +149,74 @@ with the `AAA100_CACHE_ROOT` environment variable.
 
 ---
 
-## 2. (Future) Wittek et al. 4D-CTA AAA dataset
+## 2. AortaSeg24 (MICCAI 2024 challenge) — CT + multi-class segmentation
+
+**Citation**: Imran M, et al. *AortaSeg24: Multi-class Segmentation of Aorta
+and Great Vessels in CTA* (MICCAI 2024). Challenge:
+[aortaseg24.grand-challenge.org](https://aortaseg24.grand-challenge.org/).
+Class table: Table 2 of arXiv:2502.05330.
+
+**License**: CC BY-NC 4.0 (Attribution-NonCommercial). **Never redistributed
+with this repo** — the MIT license covers source only. Download it yourself
+after accepting the grand-challenge data-use agreement.
+
+### Contents
+
+- ~100 CTAs, each with a voxelwise label of **23 classes**: 13 anatomic
+  branches (arch vessels, celiac, SMA, both renals, both common + external +
+  internal iliacs) and 10 aortic zones (Ishimaru-style 0–9).
+- **Provides:** the CT image + a dense arterial-tree segmentation.
+- **Does NOT provide:** aortic wall or intraluminal thrombus (lumen +
+  branches only), and — importantly — **no CFA / femoral labels**: the
+  iliacs stop at the external iliac (there is no zone below the iliac
+  bifurcation). Plan the distal centerline target at the external-iliac
+  terminus, not the CFA.
+
+### Role in this project
+
+1. **Real reference cases in the GUI/pipeline** — a licensed replacement for
+   the synthetic phantoms when you want real anatomy (the phantoms stay as
+   the shippable, deterministic test fixtures).
+2. **Training data for the learned-segmentation phase** (GOALS #26 / the
+   `LEARNED_SEGMENTATION_ROADMAP.md`). The class map + `+autoseg/+aortaseg24/`
+   nnU-Net backend are already scaffolded.
+
+### Integration (built 2026-07-11)
+
+| Component | Path | Purpose |
+|---|---|---|
+| Data root | `+library/+aortaseg24/data_root.m` | locate the downloaded cohort; override with `AORTASEG24_DATA_ROOT` |
+| Case discovery | `+library/+aortaseg24/list_cases.m` | pair CT + seg NIfTIs (tolerant of naming variants) |
+| Loader | `+library/+aortaseg24/load_case.m` | CT + label NIfTI → app D-struct + arterial mask + pipeline labels (via `autoseg.aortaseg24.translate_labels` + the class map) |
+| Class map | `data/aortaseg24_class_map.json` | raw 23-class id → pipeline label (1=aorta, 2/3=iliacs, 4/5=CFAs[absent here], 6/7=renals, 8=celiac, 9=SMA, 11=ILT) |
+| Test | `tests/test_aortaseg24_loader.m` | synthetic-NIfTI round-trip (no dataset needed) |
+
+**Usage** (once downloaded and `AORTASEG24_DATA_ROOT` is set):
+
+```matlab
+cases = library.aortaseg24.list_cases();          % discover CT/label pairs
+C = library.aortaseg24.load_case(cases(1).ct_path, cases(1).label_path);
+app.AorticCenterlineApp;                          % (or reuse a running app)
+% inject the real case exactly like a phantom:
+%   app.injectCT(C.D); app.injectMask(C.mask);
+```
+
+**Caveats.**
+- **NIfTI only** (`niftiread`/`niftiinfo`). AortaSeg24 ships NRRD — convert to
+  `.nii.gz` first (3D Slicer, or `SimpleITK`).
+- **Orientation.** The loader assumes the NIfTI array maps to the app's
+  `[Y X Z]` cranial-first frame. If a case loads flipped/rotated, pass
+  `opts.permute` / `opts.flip` to `load_case`; the app's orientation guard
+  (femorals must be caudal) will flag a bad guess.
+- **HU.** Assumes the CT is stored in Hounsfield units (standard for CTA).
+
+*(A comparable "aortaseg60"-style cohort, if it turns out to exist, loads
+through the same code — pass its own class-map JSON via
+`opts.class_map_path`.)*
+
+---
+
+## 3. (Future) Wittek et al. 4D-CTA AAA dataset
 
 [Wittek A, et al. *4D-CTA dataset of 19 AAA patients.* Data in Brief
 (2020). arXiv:2505.17647.](https://arxiv.org/abs/2505.17647)
@@ -160,7 +227,7 @@ integrated.
 
 ---
 
-## 3. (Future) Vascular Model Repository
+## 4. (Future) Vascular Model Repository
 
 ~32 AAA cases with paired images and geometry. Useful supplement.
 Status: not yet evaluated.

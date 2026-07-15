@@ -2,6 +2,29 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-11 — AortaSeg dataset loader (real reference cases)
+
+Added an ingest for the public **AortaSeg24** CT + multi-class segmentation
+cohort so real reference cases can be worked in the GUI/pipeline alongside
+the synthetic phantoms (which stay as the shippable, deterministic test
+fixtures — the CC-BY-NC dataset is never redistributed with the MIT repo).
+
+- **`+library/+aortaseg24/`** (mirrors `+library/+aaa100/`): `data_root`
+  (override via `AORTASEG24_DATA_ROOT`), `list_cases` (pairs CT/label NIfTIs,
+  tolerant of naming variants), `load_case` (CT + label NIfTI → app D-struct
+  + arterial mask + pipeline labels via `autoseg.aortaseg24.translate_labels`
+  + the class map). Class-map-configurable so a compatible "aortaseg60"-style
+  cohort loads through the same code.
+- **GUI:** File ▸ *Open AortaSeg case (CT + label)…* → pick CT + label,
+  loads exactly like a phantom (`loadAortaSegCase`, dialog-free core for
+  scripting/tests). 
+- **Test:** `tests/test_aortaseg24_loader.m` (4) — synthetic-NIfTI round-trip
+  (no dataset needed): class translation, arterial-mask option, pair
+  discovery, missing-file errors.
+- **Docs:** `docs/datasets.md` §2 — contents, license, download/access,
+  usage, and caveats (NIfTI-only, orientation via `.permute`/`.flip`, and
+  **no CFA labels** — AortaSeg24 iliacs stop at the external iliac).
+
 ## 2026-07-11 — Verify the manual click-to-place-endpoints workflow
 
 Drove the **manual** Step-3 seed workflow end-to-end through the GUI on the
