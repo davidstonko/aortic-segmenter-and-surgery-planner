@@ -23,6 +23,20 @@ function out = run_planner_headless(dicom_dir, opts)
 %   skips the GUI entirely.
 %
 %   OPTS (struct), optional:
+%       .seg_backend     which segmentation to use (mirrors
+%                        centerline_backend): 'totalsegmentator' (default,
+%                        historical behaviour), 'learned' (aortaseg24
+%                        nnU-Net; errors cleanly without weights),
+%                        'external' (adopt a caller-supplied pipeline-scheme
+%                        label NIfTI — a hand-annotated Set-A mask or any
+%                        model output), or 'auto' (learned if weights are
+%                        present, else TS). See autoseg.resolve_seg_backend.
+%       .seg_label_nifti (external only) path to the label NIfTI on the CT
+%                        grid — the MATLAB<->Python NIfTI-on-disk contract.
+%       .seg_class_map   (external only) class-map JSON to translate the
+%                        NIfTI into the pipeline scheme (e.g.
+%                        data/setA_class_map.json for SOP-painted masks);
+%                        '' if the NIfTI is already in pipeline labels.
 %       .out_dir         where to write results (default
 %                        results/logs/headless_<dt>/)
 %       .fast            pass --fast to TS (default true; 3 mm model)
@@ -85,6 +99,28 @@ function out = run_planner_headless(dicom_dir, opts)
     % Voronoi/fast-marching centerline that matches TeraRecon's algorithm;
     % the MATLAB path is a pure-MATLAB fallback with no external deps.
     if ~isfield(opts, 'centerline_backend'); opts.centerline_backend = 'auto'; end
+    % Segmentation backend selector (mirrors centerline_backend). 'auto'
+    % uses the learned nnU-Net when weights are present, else TS; 'learned'
+    % forces the aortaseg24 nnU-Net (errors cleanly without weights);
+    % 'external' adopts a caller-supplied pipeline-scheme label NIfTI
+    % (opts.seg_label_nifti) — e.g. a hand-annotated Set-A mask — so the
+    % full planner runs on ANY segmentation, model or manual, without TS.
+    % Default 'totalsegmentator' preserves the historical behaviour exactly.
+    if ~isfield(opts, 'seg_backend');    opts.seg_backend = 'totalsegmentator'; end
+    if ~isfield(opts, 'seg_label_nifti'); opts.seg_label_nifti = '';           end
+    % Class map applied to an EXTERNAL label NIfTI before use. Set-A masks
+    % are painted in the SOP paint-IDs (data/setA_class_map.json) and MUST
+    % be translated to the pipeline scheme; leave '' only if the NIfTI is
+    % already in pipeline labels (1=aorta, 2/3=iliacs, 4/5=CFAs, ...).
+    if ~isfield(opts, 'seg_class_map');  opts.seg_class_map = '';              end
+    [seg_backend, seg_backend_info] = autoseg.resolve_seg_backend(opts.seg_backend); %#ok<ASGLU>
+    external_seg = ismember(seg_backend, {'learned', 'external'});
+    if strcmp(seg_backend, 'external') && isempty(opts.seg_label_nifti)
+        error('run_planner_headless:NoExternalSeg', ...
+            ['seg_backend=''external'' requires opts.seg_label_nifti (a ' ...
+             'pipeline-scheme label NIfTI, e.g. a Set-A annotation mask ' ...
+             'with opts.seg_class_map=data/setA_class_map.json).']);
+    end
     % Segmentation-only mode: build the full connected mask + seeds (all of
     % the branch / CFA-extension / HU-reconstruct / reconnect / keep-CC
     % steps) and return BEFORE the VMTK centerline. The GUI's step-by-step
@@ -127,6 +163,10 @@ function out = run_planner_headless(dicom_dir, opts)
     % near-instant. The key checksums the full volume, so a different scan
     % (or different targets/backend) never collides.
     if ~isfield(opts, 'result_cache'); opts.result_cache = true; end
+    % A learned/external segmentation is caller-supplied (or model-versioned)
+    % and not keyed by the whole-result cache, so never let a cached TS
+    % result stand in for it — recompute against the provided mask.
+    if external_seg; opts.result_cache = false; end
     % Resolve CFA-cap options here too so they can key the result cache
     % (a different cap changes the whole downstream result).
     if ~isfield(opts, 'cap_cfa_at_inguinal'); opts.cap_cfa_at_inguinal = true; end
@@ -199,39 +239,60 @@ function out = run_planner_headless(dicom_dir, opts)
         end
     end
 
-    % --- Step 2: TotalSegmentator ----
-    % We need the FULL multilabel volume for anatomic seed detection
-    % (kidney_top anchor), not just the binary aorta+iliac mask.
+    % --- Step 2: segmentation (backend-selected) ----
+    % TS returns the FULL multilabel volume for anatomic seed detection
+    % (kidney_top anchor), not just the binary aorta+iliac mask. The
+    % learned/external backends instead supply a pipeline-scheme label
+    % volume directly, which is trusted as-is (the TS-specific branch
+    % build/repair steps below are skipped for them).
     t0 = tic;
-    ts_opts = struct('targets', {opts.targets}, ...
-                     'fast', opts.fast, ...
-                     'return_label_volume', true);
-    [mask, info] = autoseg.ts_run(D, ts_opts);
-    timing.totalseg = toc(t0);
-    assert(any(mask(:)), 'run_planner_headless:EmptyMask', ...
-        'TS returned an empty mask — aorta/iliac classes missing.');
-    fprintf('[2] TS done in %.1fs (cached=%d): %s\n', ...
-        timing.totalseg, info.from_cache, strjoin(info.targets_found, ', '));
+    label_branch = uint8([]);
+    switch seg_backend
+        case 'totalsegmentator'
+            ts_opts = struct('targets', {opts.targets}, ...
+                             'fast', opts.fast, ...
+                             'return_label_volume', true);
+            [mask, info] = autoseg.ts_run(D, ts_opts);
+            timing.totalseg = toc(t0);
+            assert(any(mask(:)), 'run_planner_headless:EmptyMask', ...
+                'TS returned an empty mask — aorta/iliac classes missing.');
+            fprintf('[2] TS done in %.1fs (cached=%d): %s\n', ...
+                timing.totalseg, info.from_cache, strjoin(info.targets_found, ', '));
+        case {'learned', 'external'}
+            [mask, label_branch, info] = adopt_seg_backend(D, seg_backend, opts);
+            timing.totalseg = toc(t0);
+            fprintf('[2] %s segmentation adopted in %.1fs: %d vox, pipeline labels {%s}\n', ...
+                seg_backend, timing.totalseg, nnz(mask), ...
+                num2str(unique(label_branch(label_branch > 0)).'));
+    end
 
     % --- Step 3: branch extension (iliacs → CFAs + visceral branches) ----
     t0 = tic;
-    seg_uint8 = uint8(info.label_volume);
-    label_branch = uint8([]);
-    try
-        % Use the disk-cached wrapper so a re-run on the same case skips
-        % the ~25 s imreconstruct stack. Pass force=true to bypass the
-        % cache if you've tuned extend_and_detect_branches and want to
-        % see the new output on an already-cached case.
-        [m_branch, label_branch, info_b] = autoseg.detect_branches_cached(D, seg_uint8); %#ok<ASGLU>
-        mask = mask | m_branch;
-    catch ME_b
-        fprintf('[3] branch extension failed (%s) — proceeding with raw TS mask\n', ME_b.message);
-        seg_qc_warnings{end+1} = sprintf('branch extension failed: %s', ME_b.message); %#ok<AGROW>
-        seg_incomplete = true;
+    if external_seg
+        % Learned/external backend already provides pipeline-scheme branch
+        % labels; mirror them into seg_uint8 so the anatomic seed finder
+        % (Step 6) has a label volume, and skip TS-space branch detection.
+        seg_uint8 = label_branch;
+        timing.extend = toc(t0);
+        fprintf('[3] branch detection skipped (%s backend supplies branch labels)\n', seg_backend);
+    else
+        seg_uint8 = uint8(info.label_volume);
+        try
+            % Use the disk-cached wrapper so a re-run on the same case skips
+            % the ~25 s imreconstruct stack. Pass force=true to bypass the
+            % cache if you've tuned extend_and_detect_branches and want to
+            % see the new output on an already-cached case.
+            [m_branch, label_branch, info_b] = autoseg.detect_branches_cached(D, seg_uint8); %#ok<ASGLU>
+            mask = mask | m_branch;
+        catch ME_b
+            fprintf('[3] branch extension failed (%s) — proceeding with raw TS mask\n', ME_b.message);
+            seg_qc_warnings{end+1} = sprintf('branch extension failed: %s', ME_b.message); %#ok<AGROW>
+            seg_incomplete = true;
+        end
+        timing.extend = toc(t0);
+        fprintf('[3] Iliac/CFA + visceral-branch detection (%.1fs): combined mask %.1f mL\n', ...
+            timing.extend, nnz(mask) * D.pixel_mm(1) * D.pixel_mm(2) * D.slice_spacing_mm / 1000);
     end
-    timing.extend = toc(t0);
-    fprintf('[3] Iliac/CFA + visceral-branch detection (%.1fs): combined mask %.1f mL\n', ...
-        timing.extend, nnz(mask) * D.pixel_mm(1) * D.pixel_mm(2) * D.slice_spacing_mm / 1000);
 
     % --- Step 3b: extend each side's CFA terminus down to the femoral
     %     level. extend_and_detect_branches truncates at the iliac/CFA
@@ -239,7 +300,7 @@ function out = run_planner_headless(dicom_dir, opts)
     %     contrast dropout; slice-by-slice tracking with re-acquire and
     %     a wider HU window reaches the inguinal ligament and beyond.
     t0 = tic;
-    if ~isempty(label_branch) && ~is_eia_target
+    if ~isempty(label_branch) && ~is_eia_target && ~external_seg
         try
             [mask, label_branch, info_cfa] = autoseg.extend_to_cfa(D, mask, label_branch, struct('verbose', false));
             % Best-effort progress log. The extension itself already
@@ -275,7 +336,7 @@ function out = run_planner_headless(dicom_dir, opts)
     % bolus-grade HU in the source CT. No synthetic tubes through
     % tissue. Region-grow restricted to the pelvis (z >= bifurc - 30 mm).
     if ~isfield(opts, 'use_adaptive_hu_follower'); opts.use_adaptive_hu_follower = true; end
-    if opts.use_adaptive_hu_follower && ~isempty(label_branch)
+    if opts.use_adaptive_hu_follower && ~isempty(label_branch) && ~external_seg
         t0 = tic;
         try
             [mask, info_adaptive] = autoseg.follow_iliacs_adaptive(D, mask, label_branch, ...
@@ -315,7 +376,7 @@ function out = run_planner_headless(dicom_dir, opts)
     %     disconnected and the downstream centerline step will flag
     %     it — no phantom anatomy is invented.
     t0 = tic;
-    if ~isempty(D) && isfield(D, 'vol') && ~isempty(D.vol) && any(mask(:))
+    if ~isempty(D) && isfield(D, 'vol') && ~isempty(D.vol) && any(mask(:)) && ~external_seg
         % Grow the TS-derived mask through actual CT contrast within a
         % 5-mm shell (HU 150-1400, in-plane size-capped so it can't leak
         % into cancellous marrow / IVC / bowel). The helper crops the work
@@ -356,7 +417,7 @@ function out = run_planner_headless(dicom_dir, opts)
     %     leak-safe (only adds voxels that already carry bolus-grade HU).
     t0 = tic;
     if ~isfield(opts, 'reconnect_iliac_fragments'); opts.reconnect_iliac_fragments = true; end
-    if opts.reconnect_iliac_fragments && isfield(D, 'vol') && ~isempty(D.vol) && any(mask(:))
+    if opts.reconnect_iliac_fragments && isfield(D, 'vol') && ~isempty(D.vol) && any(mask(:)) && ~external_seg
         % Pelvis floor: 40 mm cranial of the iliac-label top (labels 2-5 =
         % iliacs + CFA extension). Falls back to the lower half of the
         % volume if the branch labels are unavailable.
@@ -399,7 +460,7 @@ function out = run_planner_headless(dicom_dir, opts)
     %     disconnected (reported) — no tube is forced through tissue, so
     %     the operator's no-bridge rule holds. Off in legacy 'cfa' mode.
     t0 = tic;
-    if opts.reconnect_vesselness_path && isfield(D, 'vol') && ~isempty(D.vol) && any(mask(:))
+    if opts.reconnect_vesselness_path && isfield(D, 'vol') && ~isempty(D.vol) && any(mask(:)) && ~external_seg
         z_lo_vp = round(size(D.vol, 3) / 2);
         if exist('label_branch', 'var') && ~isempty(label_branch)
             iliac_top_vp = find(squeeze(any(any(ismember(label_branch, [2 3 4 5]), 1), 2)), 1, 'first');
@@ -651,6 +712,7 @@ function out = run_planner_headless(dicom_dir, opts)
             'arc_R_mm', NaN, 'arc_L_mm', NaN, ...
             'centerline_backend', 'skipped', 'timing', timing, ...
             'out_dir', opts.out_dir, 'ts_info', info);
+        out.seg_backend = seg_backend;
         if exist('label_branch', 'var'); out.label_branch = label_branch; end
         out.D = D;
         if exist('audit', 'var'); out.audit = audit; end
@@ -782,6 +844,7 @@ function out = run_planner_headless(dicom_dir, opts)
                  'timing', timing, ...
                  'out_dir', opts.out_dir, ...
                  'ts_info', info);
+    out.seg_backend = seg_backend;
     % Branch label volume (1=aorta, 2/3=iliacs, 4/5=CFAs, 6/7=renals,
     % 8=celiac, 9=SMA) — needed by the GUI to render each branch in its
     % own color and to anchor auto-seeds. Carried out so a GUI caller
@@ -957,6 +1020,44 @@ end
 function v = field_or_nan(s, f)
     if isfield(s, f) && ~isempty(s.(f)) && isnumeric(s.(f)); v = s.(f);
     else; v = NaN; end
+end
+
+function [mask, label_branch, info] = adopt_seg_backend(D, seg_backend, opts)
+%ADOPT_SEG_BACKEND  Obtain a pipeline-scheme label volume from a learned
+%   nnU-Net or a caller-supplied NIfTI, in place of the TS heuristic path.
+%   The returned label volume is TRUSTED as-is; the TS build/repair steps
+%   are skipped for these backends.
+    switch seg_backend
+        case 'learned'
+            % Errors cleanly (Phase_B_needs_weights / Unavailable) when no
+            % checkpoint exists — never fabricates a segmentation.
+            r = autoseg.aortaseg24.run(D);
+            label_branch = uint8(r.label);
+            mask = logical(r.mask);
+        case 'external'
+            % A label NIfTI on the CT grid (the MATLAB<->Python contract).
+            % Set-A annotation masks are painted in SOP paint-IDs and need
+            % translation via opts.seg_class_map; a mask already in pipeline
+            % labels is used directly (seg_class_map = '').
+            raw = uint8(io.load_nifti_int(opts.seg_label_nifti, size(D.vol)));
+            if ~isempty(opts.seg_class_map)
+                label_branch = uint8(autoseg.aortaseg24.translate_labels( ...
+                    raw, opts.seg_class_map));
+            else
+                label_branch = raw;
+            end
+            mask = label_branch > 0;
+        otherwise
+            error('run_planner_headless:BadAdoptBackend', ...
+                'adopt_seg_backend: unexpected backend ''%s''.', seg_backend);
+    end
+    if ~any(mask(:))
+        error('run_planner_headless:EmptyExternalSeg', ...
+            '%s segmentation produced an empty mask.', seg_backend);
+    end
+    % Mirror the TS `info` fields the downstream code reads.
+    info = struct('from_cache', false, 'backend', seg_backend, ...
+        'targets_found', {{[seg_backend '-seg']}}, 'label_volume', label_branch);
 end
 
 function p_mm = voxel_to_mm(p_vox, D)

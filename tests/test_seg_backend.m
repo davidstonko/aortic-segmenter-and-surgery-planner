@@ -1,0 +1,166 @@
+classdef test_seg_backend < matlab.unittest.TestCase
+%TEST_SEG_BACKEND  Covers the segmentation-backend selector
+%   (autoseg.resolve_seg_backend) and its wiring into
+%   run_planner_headless: the 'external' backend that runs the full
+%   planner on a caller-supplied pipeline-scheme label NIfTI (a
+%   hand-annotated Set-A mask or a learned nnU-Net output), and the
+%   'learned' backend's clean failure without weights.
+%
+%   The end-to-end external test builds a synthetic connected Y-shaped
+%   vessel LABEL volume (aorta + celiac/SMA + iliacs + CFAs in the
+%   pipeline scheme), writes it as NIfTI, and runs the planner through
+%   segmentation → seeds (skip_centerline) — proving the learned/manual
+%   mask flows into the same downstream path with TS bypassed. Synthetic
+%   data only; no TotalSegmentator, no patient data.
+
+%   Project: AINN/EVAR (Phase 3)
+%   Author : David P. Stonko
+
+    properties (Access = private)
+        project_root
+        tmp
+    end
+
+    methods (TestClassSetup)
+        function add_path(tc)
+            tc.project_root = fileparts(fileparts(mfilename('fullpath')));
+            addpath(tc.project_root);
+        end
+    end
+
+    methods (TestMethodSetup)
+        function mk_tmp(tc)
+            tc.tmp = tempname; mkdir(tc.tmp);
+        end
+    end
+
+    methods (TestMethodTeardown)
+        function rm_tmp(tc)
+            if ~isempty(tc.tmp) && isfolder(tc.tmp); rmdir(tc.tmp, 's'); end
+        end
+    end
+
+    methods (Test)
+
+        % ---- resolver ----------------------------------------------------
+
+        function resolver_maps_names_and_aliases(tc)
+            tc.verifyEqual(autoseg.resolve_seg_backend('totalsegmentator'), 'totalsegmentator');
+            tc.verifyEqual(autoseg.resolve_seg_backend('ts'), 'totalsegmentator');
+            tc.verifyEqual(autoseg.resolve_seg_backend('learned'), 'learned');
+            tc.verifyEqual(autoseg.resolve_seg_backend('aortaseg24'), 'learned');
+            tc.verifyEqual(autoseg.resolve_seg_backend('external'), 'external');
+            tc.verifyEqual(autoseg.resolve_seg_backend('MASK'), 'external');
+        end
+
+        function resolver_auto_falls_back_to_ts_without_weights(tc)
+            % No AortaSeg24 checkpoint on the test machine → auto = TS.
+            [backend, info] = autoseg.resolve_seg_backend('auto');
+            tc.verifyEqual(backend, 'totalsegmentator');
+            tc.verifyFalse(info.learned_available);
+            tc.verifyNotEmpty(info.learned_reason);
+        end
+
+        function resolver_rejects_unknown(tc)
+            tc.verifyError(@() autoseg.resolve_seg_backend('bogus'), ...
+                'autoseg:resolve_seg_backend:BadBackend');
+        end
+
+        % ---- run_planner_headless wiring ---------------------------------
+
+        function external_requires_a_label_nifti(tc)
+            tc.verifyError(@() run_planner_headless("", struct('seg_backend', 'external')), ...
+                'run_planner_headless:NoExternalSeg');
+        end
+
+        function learned_without_weights_surfaces_clean_error(tc)
+            % No checkpoint → aortaseg24.run refuses to fabricate a mask.
+            D = tc.make_labeled_case();
+            f = @() run_planner_headless("", struct('D', D.D, ...
+                'seg_backend', 'learned', 'skip_centerline', true, ...
+                'out_dir', fullfile(tc.tmp, 'lrn')));
+            caught = '';
+            try
+                f();
+            catch ME
+                caught = ME.identifier;
+            end
+            tc.verifyTrue(startsWith(caught, 'autoseg:aortaseg24:'), ...
+                sprintf('expected an autoseg:aortaseg24:* error, got "%s"', caught));
+        end
+
+        function external_backend_flows_through_pipeline(tc)
+            C = tc.make_labeled_case();
+            nifti = fullfile(tc.tmp, 'segA_pipeline.nii');
+            niftiwrite(C.label, nifti);   % already in pipeline scheme
+
+            out = run_planner_headless("", struct('D', C.D, ...
+                'seg_backend', 'external', 'seg_label_nifti', nifti, ...
+                'skip_centerline', true, 'verbose', false, ...
+                'out_dir', fullfile(tc.tmp, 'ext')));
+
+            tc.verifyEqual(out.seg_backend, 'external');
+            % Mask adopted from the NIfTI (TS bypassed): every planned mask
+            % voxel is a labeled voxel (keep-largest-CC may drop strays, so
+            % subset, not equality).
+            tc.verifyTrue(all(C.label(out.mask) > 0), ...
+                'planned mask contains voxels absent from the external label');
+            tc.verifyGreaterThan(nnz(out.mask), 0);
+            % Seeds located from the pipeline-scheme labels (celiac + CFAs).
+            tc.verifyTrue(out.seeds.ok, 'external-seg seeds not all located');
+            tc.verifyTrue(isfield(out, 'label_branch') && any(out.label_branch(:) == 8));
+        end
+
+        function external_empty_mask_errors(tc)
+            C = tc.make_labeled_case();
+            nifti = fullfile(tc.tmp, 'empty.nii');
+            niftiwrite(zeros(size(C.label), 'uint8'), nifti);
+            tc.verifyError(@() run_planner_headless("", struct('D', C.D, ...
+                'seg_backend', 'external', 'seg_label_nifti', nifti, ...
+                'skip_centerline', true, 'out_dir', fullfile(tc.tmp, 'mt'))), ...
+                'run_planner_headless:EmptyExternalSeg');
+        end
+
+    end
+
+    methods (Access = private)
+        function C = make_labeled_case(tc) %#ok<MANU>
+        % A connected Y in the pipeline label scheme (head at z=1):
+        %   aorta(1) column → bifurcation → R leg [iliac 3 → CFA 5] (lower x,
+        %   patient-right) + L leg [iliac 2 → CFA 4] (higher x); celiac(8)
+        %   and SMA(9) stubs above the renals. Femorals are caudal (high z).
+            sz  = [64 64 120];
+            lab = zeros(sz, 'uint8');
+            cx  = 32;
+            % aorta lumen, z 1..72
+            for z = 1:72
+                lab(30:34, cx-2:cx+2, z) = 1;
+            end
+            % celiac + SMA stubs (give the proximal-seed anchor)
+            lab(31:33, cx+3:cx+9, 38:41) = 8;   % celiac
+            lab(31:33, cx+3:cx+8, 46:49) = 9;   % SMA
+            % legs, z 71..120 — start at the aorta and diverge so the whole
+            % tree is one 26-connected component.
+            for z = 71:120
+                t   = (z - 71) / (120 - 71);         % 0..1 down the leg
+                xr  = round(cx - 2 - 8 * t);         % right drifts to low x
+                xl  = round(cx + 2 + 8 * t);         % left drifts to high x
+                if z <= 88; rl = 3; else; rl = 5; end   % R iliac → R CFA
+                if z <= 88; ll = 2; else; ll = 4; end   % L iliac → L CFA
+                lab(30:33, xr-1:xr+1, z) = rl;
+                lab(30:33, xl-1:xl+1, z) = ll;
+            end
+            D = struct();
+            D.vol              = int16(lab > 0) * 300;   % contrast in-lumen
+            D.pixel_mm         = [1 1];
+            D.slice_spacing_mm = 1.5;
+            D.slice_z_mm       = ((1:sz(3)) - 1).' * 1.5;
+            D.is_volume        = true;
+            D.z_normalized     = true;
+            D.patient_id       = 'SYNTH';
+            D.study_date        = '';
+            D.series_description = 'synthetic labeled case';
+            C = struct('label', lab, 'D', D);
+        end
+    end
+end

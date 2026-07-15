@@ -2,6 +2,38 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-15 — Phase 4: segmentation-backend selector + external-mask planning
+
+Wired the learned-segmentation **backend selector** into the planner, and — the
+practical win — made it possible to run the **full planner on a hand-annotated
+mask today, before any model is trained**.
+
+- **`autoseg.resolve_seg_backend`** (new) — normalizes/aliases and resolves
+  `auto|totalsegmentator|learned|external` (mirrors `centerline_backend`).
+  `auto` picks the learned nnU-Net when weights are present (honest about
+  weights via `aortaseg24.detect`), else TS.
+- **`run_planner_headless` gains `opts.seg_backend`** (default
+  `totalsegmentator` — **zero behaviour change**):
+  - `external`: adopt a caller-supplied pipeline-scheme label NIfTI
+    (`opts.seg_label_nifti`, optionally translated via `opts.seg_class_map`,
+    e.g. `data/setA_class_map.json` for SOP-painted masks). The mask is
+    trusted as-is; the six TS-specific build/repair steps (branch detect, CFA
+    extend, adaptive-HU follow, HU-reconstruct, fragment/vesselness reconnect)
+    are skipped. Flows into the same seeds → centerline → measurement → IFU
+    path. Result carries `out.seg_backend`.
+  - `learned`: runs `aortaseg24.run` (errors cleanly without weights).
+  - Whole-result cache disabled for external/learned (never let a cached TS
+    result stand in for a supplied mask).
+- **`preprocess.auto_seeds_anatomic`** — falls back to the pipeline aorta label
+  (1) when the label volume isn't in TS class ids, so learned/external label
+  volumes seed correctly. TS callers never reach the fallback (unchanged).
+- **`tests/test_seg_backend.m`** (new, 7/7) — resolver mapping/aliases,
+  `auto`→TS without weights, bad-backend rejection, external-requires-NIfTI,
+  learned-without-weights clean error, an **end-to-end external run** on a
+  synthetic pipeline-scheme Y-tube (adopts mask, skips TS, finds all three
+  seeds), and empty-mask rejection. Full synthetic suite: **26/26**
+  (seg_backend + de-id + loader + phantom).
+
 ## 2026-07-15 — Phase 0 built: DICOM de-identification intake + provenance manifest
 
 Implemented the learned-segmentation roadmap's **Phase 0** (the blocking,
