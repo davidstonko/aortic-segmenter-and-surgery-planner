@@ -78,6 +78,15 @@ AortaSeg24 has **no public checkpoint** and segments lumen+branches only
 - **`scripts/run_benchmark.m` + fixed cohort CSV** (`batch_summary_row`) —
   ready to produce the accuracy table once reference measurements are entered.
 
+## Locked configuration (decided 2026-07-15)
+
+| Decision | Choice | Consequence |
+|---|---|---|
+| **First label schema** | **Set A only** (lumen + branches + zones) | Closes generalization (#41) fastest; Set B (wall/ILT) deferred to a later pass. |
+| **Case scope** | **Pre-op only**, + a small **post-EVAR** set held out as a labelled shift probe | Cleanest first model; no endograft artifact in the training distribution. |
+| **Annotator** | **Solo, part-time** (surgeon) | Highest label quality; smaller active-learning batches; inter-rater QC done by **re-annotating a held-out subset** (intra-rater Dice) since there's no second reader yet. |
+| **Compute** | **Apple Silicon (Mac M1) GPU** | Fine for annotation, prelabel inference, and the MATLAB planner — but **nnU-Net *training* wants CUDA**; see the compute reality-check in Phase 3. |
+
 ## Phase 0 — Data governance & de-identification (blocking, do first)
 
 The IRB approval permits collection; it does **not** relax PHI handling. Get
@@ -177,9 +186,20 @@ This is where reading skill is built and encoded.
   cohort. Two models: Set A (lumen+branches, all cases) and Set B (wall+ILT,
   AAA subset). Train from scratch only if licensing blocks the warm start
   (feasible at this N).
-- **Compute:** one modern GPU (≥24 GB, e.g. RTX 4090/A100). nnU-Net 3d_fullres
-  ≈ hours-to-1-day per fold; 5-fold CV. Cloud A100 if no local GPU. *(Local
-  vs cloud is an open decision — see the list at the end.)*
+- **Compute — reality-check for the Mac M1 (locked config).** nnU-Net and
+  TotalSegmentator are built for **CUDA**. On Apple Silicon they run through
+  the **MPS** backend, but MPS is under-optimized and some 3D ops fall back to
+  CPU, so **3d_fullres *training* on an M1 is impractically slow** (and bounded
+  by unified memory). Split the work by where each piece actually runs well:
+  - **On the M1 (local):** 3D Slicer annotation (runs great), **prelabel
+    inference** with TotalSegmentator / nnInteractive (slow but fine for a
+    handful of cases), the whole **MATLAB planner**, and *inference* of the
+    finished model (slow-but-workable, or push to cloud).
+  - **In the cloud (CUDA), rented per run:** the actual **nnU-Net training**
+    — a single A100/4090 does 3d_fullres in hours-to-1-day per fold. Only
+    **de-identified NIfTI** leaves the regulated store (Phase 0 is the gate).
+  This keeps PHI-adjacent work and iteration local, and rents GPU only for the
+  short, compute-bound training step.
 - **Loss/eval:** nnU-Net defaults (Dice+CE); 5-fold CV; report per-class Dice
   **and NSD** (normalized surface Dice — boundary-sensitive, which matters
   more for sizing than volumetric overlap).
