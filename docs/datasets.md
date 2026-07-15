@@ -4,6 +4,15 @@ This page catalogs the third-party datasets used in the project, what
 each provides, what each does NOT provide, and how each is being used.
 Datasets are listed in order of integration priority.
 
+> **Role of public data in the learned-segmentation phase.** Per the
+> [strategy](LEARNED_SEGMENTATION_ROADMAP.md#guiding-principles-the-strategy-in-five-decisions),
+> our **own institutional CTAs are the training foundation**; public data is
+> **supplementary / external validation, not the foundation**. If a public
+> set is used for training at all, filter strictly to **contrast-enhanced
+> aneurysm CTA**, and harmonize its labels to one scheme first (whole-aorta
+> vs 23-zone are not interchangeable). Its primary value is a held-out,
+> distribution-shift test of a model trained on our data.
+
 ---
 
 ## 1. AAA-100 (Twente + Amsterdam UMC, 2024)
@@ -177,8 +186,11 @@ after accepting the grand-challenge data-use agreement.
 1. **Real reference cases in the GUI/pipeline** — a licensed replacement for
    the synthetic phantoms when you want real anatomy (the phantoms stay as
    the shippable, deterministic test fixtures).
-2. **Training data for the learned-segmentation phase** (GOALS #26 / the
-   `LEARNED_SEGMENTATION_ROADMAP.md`). The class map + `+autoseg/+aortaseg24/`
+2. **Supplementary training / external validation** for the learned-
+   segmentation phase (per the refined strategy, public data is *not* the
+   foundation — our own CTAs are). Its branch/zone labels + AAA/dissection
+   variability make it a good **distribution-shift probe**, and a source for
+   pre-training label harmonization. The class map + `+autoseg/+aortaseg24/`
    nnU-Net backend are already scaffolded.
 
 ### Integration (built 2026-07-11)
@@ -216,7 +228,46 @@ through the same code — pass its own class-map JSON via
 
 ---
 
-## 3. (Future) Wittek et al. 4D-CTA AAA dataset
+## 3. (Candidate) AortaSeg-60 — external validation
+
+A ~60-case aorta CT segmentation set (referenced alongside AortaSeg24;
+reported as **CC0 / public domain**, which — if confirmed — makes it usable
+without the NC restriction that blocks AAA-100 and AortaSeg24). Emphasis on
+**pathological variability**. 
+
+**Intended role:** the **untouched external-validation cohort** for Phase 5
+distribution-shift assessment — a model trained on our own CTAs is scored
+here to measure how far it travels beyond our scanners. Loads through the
+**same `+library/+aortaseg24` code** by passing its own class-map JSON via
+`opts.class_map_path`. Status: not yet downloaded; **verify the license and
+that cases are contrast-enhanced arterial CTA before use.**
+
+---
+
+## 4. (Candidate) AVT — Aortic Vessel Tree (Radl et al.)
+
+Whole aortic vessel-tree CT segmentations across multiple centers, **mostly
+healthy / non-aneurysmal** anatomy. Useful for **branch-continuity and
+centerline topology** validation (the full tree is labelled), and as extra
+pre-training signal after label harmonization. **Weakness for our task:**
+little aneurysm / thrombus pathology, so it does *not* substitute for
+AAA-specific data. Filter to contrast-enhanced series if training. Status:
+not yet evaluated.
+
+---
+
+## 5. (Candidate) AAA-specific lumen + ILT cohorts (literature)
+
+Several published AAA cohorts pair CTA with **lumen + intraluminal thrombus**
+labels — the Set B classes no branch/zone dataset provides. These are the
+most relevant external source for the **wall/ILT sac-sizing** model
+(#37 / Set B) if own-institution ILT annotation bandwidth is short. Access
+is per-paper (data-use agreements vary); catalogue specific cohorts +
+licenses here as they are identified. Status: to be sourced.
+
+---
+
+## 6. (Future) Wittek et al. 4D-CTA AAA dataset
 
 [Wittek A, et al. *4D-CTA dataset of 19 AAA patients.* Data in Brief
 (2020). arXiv:2505.17647.](https://arxiv.org/abs/2505.17647)
@@ -227,7 +278,7 @@ integrated.
 
 ---
 
-## 4. (Future) Vascular Model Repository
+## 7. (Future) Vascular Model Repository
 
 ~32 AAA cases with paired images and geometry. Useful supplement.
 Status: not yet evaluated.

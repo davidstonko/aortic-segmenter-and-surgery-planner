@@ -2,6 +2,36 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-15 — Learned-segmentation strategy refined in the roadmap
+
+Folded a deep-learning segmentation design discussion into the planning docs
+(no code). `docs/LEARNED_SEGMENTATION_ROADMAP.md`:
+
+- New **"Guiding principles"** section codifying five settled decisions:
+  transfer-learning-first (warm-start TotalSegmentator/nnU-Net, not from
+  scratch); match the imaging *distribution* not the file container; **own
+  institutional CTAs are the training foundation**; public data is
+  supplementary / external validation only; label-space consistency is
+  mandatory when combining sources.
+- Phase 1: own-data foundation + **pre-op-first scoping** (post-EVAR held out
+  as a shift probe) + a reserved untouched external-validation set.
+- Phase 2: an **active-learning correction order** (seed → low-confidence
+  batches) so the annotation budget lands on the hard cases.
+- Phase 3: transfer-learning made primary; **NSD** added; the **MATLAB↔Python
+  handoff** documented as a NIfTI-on-disk contract.
+- Phase 5: **clinical endpoints** (max Ø, neck length, sac volume in mm/mL)
+  added alongside Dice/NSD/HD95 as the real acceptance bar; explicit
+  distribution-shift report.
+- Key-decisions list expanded (label granularity, pre/post-op, evaluation
+  contract).
+
+`docs/datasets.md`: public-data role reframed (external validation, not
+foundation; filter to contrast-enhanced aneurysm CTA); AortaSeg24 role #2
+softened from "training data" to supplementary/shift-probe; added candidate
+cohorts **AortaSeg-60** (CC0 external-validation target), **AVT** (whole
+vessel tree, mostly healthy), and **AAA lumen+ILT literature cohorts** (Set B
+source).
+
 ## 2026-07-11 — AortaSeg dataset loader (real reference cases)
 
 Added an ingest for the public **AortaSeg24** CT + multi-class segmentation
