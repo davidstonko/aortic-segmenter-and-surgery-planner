@@ -2,6 +2,32 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-11 — Fix the GUI step-by-step segment→centerline path
+
+**Live GUI test on a real CT (JohnDoe2) exposed a real bug** the headless
+tests + injection-based checks had hidden: the GUI's **step-by-step**
+"Run segmentation only" → "Compute centerlines" collapsed the centerline to a
+degenerate 2-node / 0 mm result, even though the one-click "Auto-run full
+pipeline" produced a correct 410 mm centerline on the same case.
+
+- **Root cause.** `runAutoSeg` (the step-by-step segment button) built a
+  LESSER mask than `run_planner_headless`: TS + branch detection only, without
+  the HU-reconstruct + fragment-reconnect + keep-largest-CC steps. Result: the
+  mask kept disconnected fragments (1,046,469 vox) instead of the connected
+  aorta→CFA component (671,284 vox), so VMTK couldn't extract a spanning
+  centerline. The missing celiac (aorta+iliac-only target set) also forced a
+  "kidney" fallback for the proximal seed.
+- **Fix.** Added `opts.skip_centerline` to `run_planner_headless` (build the
+  full connected mask + seeds, return before the VMTK centerline). The GUI's
+  Automatic-mode `runAutoSeg` now delegates to it via new `runAutoSegFull`,
+  injecting the same connected mask + branch labels + celiac-anchored seeds
+  the one-click uses. Verified live: step-by-step now yields the 671,284-vox
+  connected mask, correct seeds, and a **1020/657-node, 410 mm centerline** —
+  identical to the one-click.
+- **Cosmetic fix.** Step-4 panel read "(not yet computed)" even after the
+  one-click injected a centerline. New `clStatusText` helper makes both Step-4
+  panels reflect an already-present centerline ("Centerline ready: R … / L …").
+
 ## 2026-07-11 — GUI/UX polish (pass 1)
 
 Live UX audit of `AorticCenterlineApp` (launched on the synthetic phantom,

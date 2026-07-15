@@ -6583,6 +6583,18 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
         end
 
         function runAutoSeg(app)
+            % Automatic mode: reuse the one-click engine's mask stage
+            % (run_planner_headless with skip_centerline) so the step-by-step
+            % "Run segmentation only" produces the SAME fully-connected mask +
+            % celiac-anchored seeds as Auto-run. The old light path here (TS +
+            % branch-detect only) skipped the HU-reconstruct / reconnect /
+            % keep-CC steps, leaving aorta↔CFA disconnected and collapsing the
+            % Step-4 centerline (and the missing celiac forced a kidney seed).
+            if isfield(app.StepModes, 'step2') && strcmp(app.StepModes.step2, 'auto')
+                runAutoSegFull(app);
+                return;
+            end
+            % --- User-driven mode: user picks ROIs + refines manually -------
             % Pull the user's target selection from the checkboxes —
             % each is keyed by Tag = ts_target_<roi_name>.
             cb_handles = findobj(app.SideContent, '-regexp', 'Tag', '^ts_target_');
@@ -6674,6 +6686,67 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                             info.processing_time, ...
                             strjoin(info.targets_found, ', '));
                     end
+                    stat.FontColor = [0 0.4 0];
+                end
+                refreshMain(app);
+            catch ME
+                close(d);
+                uialert(app.UIFigure, ME.message, 'Auto-segment failed');
+                if ~isempty(stat) && isvalid(stat)
+                    stat.Text = sprintf('Failed: %s', ME.message);
+                    stat.FontColor = [0.6 0 0];
+                end
+            end
+        end
+
+        function runAutoSegFull(app)
+            % Automatic-mode segmentation via the proven engine, WITHOUT the
+            % centerline (opts.skip_centerline). Produces the same fully-
+            % connected mask + branch labels + celiac-anchored seeds as the
+            % one-click pipeline, so the Step-4 "Compute centerlines" button
+            % then gets a centerline-ready mask. Mirrors runAutoPipeline's
+            % result injection, minus the centerline.
+            if ~isfield(app.D, 'vol') || isempty(app.D.vol)
+                uialert(app.UIFigure, 'Load a CT first (Step 1).', 'No volume loaded');
+                return;
+            end
+            stat = findobj(app.SideContent, 'Tag', 'ts_status');
+            d = uiprogressdlg(app.UIFigure, 'Title', 'Segmenting (full-pipeline mask)…', ...
+                'Message', ['TotalSegmentator → branches → CFA extension → ' ...
+                    'HU-reconstruct → reconnect → keep-largest-CC → auto-seeds.', ...
+                    newline, 'Segmentation is cached; connectivity steps run ~30-60 s.'], ...
+                'Indeterminate', 'on');
+            try
+                opts = struct();
+                opts.D = app.D;
+                opts.skip_centerline = true;
+                opts.out_dir = fullfile(tempdir, sprintf('evar_seg_%s', ...
+                    char(java.util.UUID.randomUUID)));
+                out = run_planner_headless('', opts);
+
+                pushUndo(app);
+                app.Mask = logical(out.mask);
+                sz = size(app.Mask);
+                if isfield(out, 'label_branch') && ~isempty(out.label_branch) ...
+                        && isequal(size(out.label_branch), sz)
+                    app.MaskLabel = uint8(out.label_branch);
+                else
+                    ensureMaskLabel(app);
+                end
+                app.DisplayExclusion = ~app.Mask;
+                if isfield(out, 'ts_info') && isfield(out.ts_info, 'label_volume') ...
+                        && ~isempty(out.ts_info.label_volume) ...
+                        && isequal(size(out.ts_info.label_volume), sz)
+                    app.TSLabelVolume = uint8(out.ts_info.label_volume);
+                end
+                % Engine seeds (celiac-anchored) — pre-set so Step 3 shows the
+                % correct endpoints, not the kidney fallback.
+                app.SeedProximal = out.seeds.proximal;
+                app.SeedRightCFA = out.seeds.right_cfa;
+                app.SeedLeftCFA  = out.seeds.left_cfa;
+                close(d);
+                if ~isempty(stat) && isvalid(stat)
+                    stat.Text = sprintf('Segmented: %d voxels (full-pipeline mask + seeds).', nnz(app.Mask));
                     stat.FontColor = [0 0.4 0];
                 end
                 refreshMain(app);
@@ -9364,6 +9437,20 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
         end
 
         % --- Step 4: Compute centerline -----------------------------
+        function s = clStatusText(app)
+            % Status line for the Step-4 panel. Reflects an ALREADY-present
+            % centerline (e.g. injected by the one-click Auto-run) instead of
+            % always reading "(not yet computed)". A 2-node stub counts as not
+            % computed (degenerate).
+            if ~isempty(app.PolylineRight) && size(app.PolylineRight, 1) > 2 ...
+                    && ~isempty(app.PolylineLeft) && size(app.PolylineLeft, 1) > 2
+                s = sprintf('Centerline ready: R %d nodes, L %d nodes.', ...
+                    size(app.PolylineRight, 1), size(app.PolylineLeft, 1));
+            else
+                s = '(not yet computed)';
+            end
+        end
+
         function buildStep4(app)
             app.SideStepLabel.Text = 'Step 4 — Compute centerline';
             clearSideContent(app);
@@ -9448,7 +9535,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'BackgroundColor', [0.85 0.95 1.0], ...
                 'ButtonPushedFcn', @(~,~) runCenterline(app));
             uilabel(app.SideContent, 'Position', [10 320 360 56], ...
-                'Tag', 'cl_status', 'Text', '(not yet computed)', ...
+                'Tag', 'cl_status', 'Text', clStatusText(app), ...
                 'WordWrap', 'on', 'FontSize', 11);
             % Edit hint — only meaningful after the first compute, but
             % showing it pre-compute is fine (acts as advance notice).
@@ -9495,7 +9582,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             ui_helpers.info_button(sc, [350 y-34 20 20], 'step4.overview', app.UIFigure);
             y = y - 44 - 12;
             uilabel(sc, 'Position', [10 y-60 360 60], ...
-                'Tag', 'cl_status', 'Text', '(not yet computed)', ...
+                'Tag', 'cl_status', 'Text', clStatusText(app), ...
                 'WordWrap', 'on', 'FontSize', 11);
             y = y - 60 - 12;
             uibutton(sc, 'push', 'Position', [10 30 360 44], ...
