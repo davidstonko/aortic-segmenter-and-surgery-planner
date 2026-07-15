@@ -97,6 +97,17 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
         % --- Manual-editor shims (tests + auto-propose→refine driver) ---
         function eraseAtVoxelPublic(app, voxel); eraseVesselAtVoxel(app, voxel); end
         function growAtVoxelPublic(app, voxel); onVesselSelectClick(app, voxel); end
+        % --- Endpoint-seed shims (tests + click-to-place-seeds automation) --
+        function armSeedPublic(app, which); armSeed(app, which); end
+        function endpointClickPublic(app, voxel); onEndpointClick(app, voxel); end
+        function clearEndpointSeedsPublic(app)
+            app.SeedProximal = []; app.SeedRightCFA = []; app.SeedLeftCFA = [];
+            setappdata(app.UIFigure, 'arm_seed', '');
+        end
+        function s = endpointSeedsPublic(app)
+            s = struct('proximal', app.SeedProximal, ...
+                       'right_cfa', app.SeedRightCFA, 'left_cfa', app.SeedLeftCFA);
+        end
         function setGrowTolPublic(app, hu); app.GrowTolHU = max(5, round(hu)); end
         function g = getGrowTolPublic(app); g = app.GrowTolHU; end
         function n = maskVoxelCountPublic(app); n = nnz(app.Mask); end

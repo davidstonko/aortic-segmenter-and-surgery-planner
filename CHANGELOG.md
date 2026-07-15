@@ -2,6 +2,18 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-11 — Verify the manual click-to-place-endpoints workflow
+
+Drove the **manual** Step-3 seed workflow end-to-end through the GUI on the
+real JohnDoe2 CT (not auto-seeds): segment → clear seeds → arm proximal →
+click the three endpoints (proximal → R-CFA → L-CFA, auto-advancing) →
+compute centerline. Result: seeds placed correctly and a full **1020/657-node,
+410 mm** bifurcated centerline from the manually-clicked endpoints. **This path
+was already working — no bug found.** Added public automation hooks
+(`armSeedPublic`, `endpointClickPublic`, `clearEndpointSeedsPublic`,
+`endpointSeedsPublic`) matching the existing manual-editor shims so the
+endpoint workflow can be driven/tested programmatically.
+
 ## 2026-07-11 — Fix the GUI step-by-step segment→centerline path
 
 **Live GUI test on a real CT (JohnDoe2) exposed a real bug** the headless
