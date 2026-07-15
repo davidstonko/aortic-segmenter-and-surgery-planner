@@ -116,6 +116,32 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             m = app.StepModes.(sprintf('step%d', step_num));
         end
 
+        function buildFileMenu(app)
+            % Top-level File menu — standard menubar entry points that
+            % mirror the Step-1 load buttons + the project / snapshot
+            % actions, so they're reachable the way any desktop app expects
+            % (and not only from the Step-1 side panel).
+            m = uimenu(app.UIFigure, 'Text', 'File');
+            uimenu(m, 'Text', 'Open DICOM folder…', ...
+                'MenuSelectedFcn', @(~,~) openDicomFolder(app));
+            uimenu(m, 'Text', 'Open NIfTI file…', ...
+                'MenuSelectedFcn', @(~,~) openNifti(app));
+            uimenu(m, 'Text', 'Open cached CT (.mat)…', ...
+                'MenuSelectedFcn', @(~,~) openCached(app));
+            uimenu(m, 'Text', 'Open phantom from library…', ...
+                'MenuSelectedFcn', @(~,~) openPhantom(app));
+            uimenu(m, 'Text', 'Open recent…', ...
+                'MenuSelectedFcn', @(~,~) openRecent(app));
+            uimenu(m, 'Text', 'Load project…', 'Separator', 'on', ...
+                'MenuSelectedFcn', @(~,~) loadProject(app));
+            uimenu(m, 'Text', 'Save project…', ...
+                'MenuSelectedFcn', @(~,~) saveProject(app));
+            uimenu(m, 'Text', 'Save snapshot', ...
+                'MenuSelectedFcn', @(~,~) saveSnapshot(app));
+            uimenu(m, 'Text', 'Close window', 'Separator', 'on', ...
+                'MenuSelectedFcn', @(~,~) delete(app));
+        end
+
         function buildHelpMenu(app)
             % Top-level Help menu — every entry opens a help modal from
             % the +ui_helpers/help_content.m registry. Add new entries
@@ -10492,6 +10518,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 'WindowButtonMotionFcn', @(~,evt) onMouseMotionTool(app, evt), ...
                 'WindowButtonUpFcn',     @(~,evt) onMouseUpTool(app, evt));
             hydrateStepModesFromDisk(app);
+            buildFileMenu(app);
             buildHelpMenu(app);
             % Adding a uimenu causes the OS to add a menubar to the
             % uifigure, which shrinks the drawable area. Force a
