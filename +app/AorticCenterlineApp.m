@@ -403,6 +403,15 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
         R_vox_left        double  = []
         BifurcNodeIdx     double  = []   % index on PolylineRight at the bifurcation
         CenterlineMethod  char    = 'auto'   % 'vmtk' | 'skeleton' | 'auto'
+        % Segmentation source for Step 2 / the one-click pipeline. Mirrors
+        % run_planner_headless's opts.seg_backend (autoseg.resolve_seg_backend).
+        %   'totalsegmentator' — heuristic TS path (default, unchanged)
+        %   'learned'          — aortaseg24 nnU-Net (needs weights)
+        %   'external'         — adopt SegLabelNifti (a hand-annotated Set-A
+        %                        mask or any model output) as the segmentation
+        SegBackend        char    = 'totalsegmentator'
+        SegLabelNifti     char    = ''   % external backend: label NIfTI path
+        SegClassMap       char    = ''   % external: class map ('' = already pipeline labels)
         % Max-centerline-distance guardrail. When ON, the centerline
         % is rejected if the straight-line seed-to-seed distance
         % multiplied by `MaxCenterlinePathFactor` is exceeded by the
@@ -6301,16 +6310,30 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             top = top - GAP;
 
             % ---------- Section: Auto-segment (PRIMARY) -------------------
-            ts_avail = autoseg.detect();
             top = sectionHdr(app, sc, top, '⚡ Auto-segment', ...
                 [0.20 0.40 0.75], 'step2.autoseg');
             h = 44;
             uilabel(sc, 'Position', [10 top-h 360 h], ...
                 'WordWrap', 'on', 'FontSize', 11, ...
                 'FontColor', [0.30 0.30 0.30], ...
-                'Text', ['One-click TotalSegmentator. Runs in 1–2 min, ' ...
+                'Text', ['One click to a full arterial mask. Runs in 1–2 min, ' ...
                          'gives aorta + iliacs cleanly. Refine with the ' ...
                          '5-click landmark flow or manual clicks below.']);
+            top = top - h - GAP;
+            % --- Segmentation source (mirrors opts.seg_backend) ----------
+            % TotalSegmentator is the default. 'External mask' plans directly
+            % from a hand-annotated Set-A NIfTI — no model required.
+            h = 22;
+            uilabel(sc, 'Position', [10 top-h 65 h], 'Text', 'Source', ...
+                'FontSize', 11, 'FontColor', [0.30 0.30 0.30]);
+            uidropdown(sc, 'Position', [80 top-h 290 h], ...
+                'Tag', 'seg_backend_dd', ...
+                'Items', {'TotalSegmentator (default)', ...
+                          'Learned nnU-Net (AortaSeg24)', ...
+                          'External mask (NIfTI)…'}, ...
+                'ItemsData', {'totalsegmentator', 'learned', 'external'}, ...
+                'Value', app.SegBackend, 'FontSize', 11, ...
+                'ValueChangedFcn', @(dd, ~) onSegBackendChanged(app, dd));
             top = top - h - GAP;
             h = 24;
             cb_aorta = uicheckbox(sc, 'Position', [10  top-h 180 h], ...
@@ -6328,27 +6351,21 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             top = top - h - GAP;
             % Big primary auto-segment button
             h = 44;
-            ts_btn = uibutton(sc, 'push', 'Position', [10 top-h 360 h], ...
+            uibutton(sc, 'push', 'Position', [10 top-h 360 h], ...
                 'Text', '⚡ Run auto-segment (1–2 min)', ...
                 'FontSize', 14, 'FontWeight', 'bold', ...
                 'BackgroundColor', [0.30 0.65 1.00], ...
-                'FontColor', [1 1 1], ...
-                'Enable', boolEnable(ts_avail.available), ...
+                'FontColor', [1 1 1], 'Tag', 'ts_run_btn', ...
                 'ButtonPushedFcn', @(~,~) runAutoSeg(app));
             top = top - h - GAP;
-            if ts_avail.available
-                msg = '✓ TotalSegmentator ready';
-                col = [0 0.4 0];
-            else
-                msg = 'TotalSegmentator not on PATH — see SETUP.md to install.';
-                col = [0.55 0.30 0];
-                ts_btn.Tooltip = ts_avail.error;
-            end
-            h = 20;
+            h = 32;
             uilabel(sc, 'Position', [10 top-h 360 h], ...
-                'Tag', 'ts_status', 'Text', msg, 'FontSize', 11, ...
-                'FontColor', col, 'WordWrap', 'on');
+                'Tag', 'ts_status', 'Text', '', 'FontSize', 11, ...
+                'FontColor', [0 0.4 0], 'WordWrap', 'on');
             top = top - h - SECTION_GAP;
+            % Button enable + status line follow the selected source, so an
+            % unusable choice is obvious before the user clicks Run.
+            refreshSegBackendUI(app);
             cb_aorta.Visible='on'; cb_il_l.Visible='on'; %#ok<NASGU>
             cb_il_r.Visible='on'; cb_il_v.Visible='on';  %#ok<NASGU>
 
@@ -6642,6 +6659,13 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             % branch-detect only) skipped the HU-reconstruct / reconnect /
             % keep-CC steps, leaving aorta↔CFA disconnected and collapsing the
             % Step-4 centerline (and the missing celiac forced a kidney seed).
+            % A learned/external source produces a COMPLETE labelled mask, not
+            % a TS ROI selection, so the ROI-checkbox path below does not apply
+            % — always take the full-engine path (which honours seg_backend).
+            if ~strcmp(app.SegBackend, 'totalsegmentator')
+                runAutoSegFull(app);
+                return;
+            end
             if isfield(app.StepModes, 'step2') && strcmp(app.StepModes.step2, 'auto')
                 runAutoSegFull(app);
                 return;
@@ -6751,6 +6775,109 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             end
         end
 
+        function opts = applySegBackendOpts(app, opts)
+            % Fold the GUI's segmentation-source choice into the
+            % run_planner_headless options (see autoseg.resolve_seg_backend).
+            opts.seg_backend = app.SegBackend;
+            if strcmp(app.SegBackend, 'external')
+                opts.seg_label_nifti = app.SegLabelNifti;
+                opts.seg_class_map   = app.SegClassMap;
+            end
+        end
+
+        function onSegBackendChanged(app, dd)
+            % Switching to 'External mask' prompts for the label NIfTI and
+            % its label scheme; cancelling reverts the dropdown.
+            prev = app.SegBackend;
+            choice = dd.Value;
+            if strcmp(choice, 'external')
+                [f, p] = uigetfile( ...
+                    {'*.nii;*.nii.gz;*.NII', 'Label NIfTI (*.nii, *.nii.gz)'}, ...
+                    'Select the segmentation label NIfTI (must be on the CT grid)');
+                figure(app.UIFigure);      % restore focus after the modal dialog
+                if isequal(f, 0)
+                    dd.Value = prev;       % cancelled — keep the previous source
+                    return;
+                end
+                app.SegLabelNifti = fullfile(p, f);
+                here = fileparts(mfilename('fullpath'));
+                setA = fullfile(fileparts(here), 'data', 'setA_class_map.json');
+                scheme = uiconfirm(app.UIFigure, ...
+                    ['How is this mask labelled?' newline newline ...
+                     'Set-A paint IDs — as painted per the annotation SOP ' ...
+                     '(translated via setA_class_map.json).' newline ...
+                     'Pipeline labels — already 1=aorta, 2/3=iliacs, 4/5=CFAs.'], ...
+                    'Label scheme', ...
+                    'Options', {'Set-A paint IDs', 'Pipeline labels'}, ...
+                    'DefaultOption', 1, 'Icon', 'question');
+                if strcmp(scheme, 'Set-A paint IDs') && isfile(setA)
+                    app.SegClassMap = setA;
+                else
+                    app.SegClassMap = '';
+                end
+            end
+            app.SegBackend = choice;
+            refreshSegBackendUI(app);
+        end
+
+        function refreshSegBackendUI(app)
+            % Reflect the selected segmentation source in the Run button's
+            % enable state and the status line.
+            btn  = findobj(app.SideContent, 'Tag', 'ts_run_btn');
+            stat = findobj(app.SideContent, 'Tag', 'ts_status');
+            dd   = findobj(app.SideContent, 'Tag', 'seg_backend_dd');
+            if ~isempty(dd) && isvalid(dd); dd.Value = app.SegBackend; end
+            ok = false; msg = ''; tip = '';
+            switch app.SegBackend
+                case 'totalsegmentator'
+                    a = autoseg.detect();
+                    ok = a.available;
+                    if ok
+                        msg = '✓ TotalSegmentator ready';
+                    else
+                        msg = 'TotalSegmentator not on PATH — see SETUP.md to install.';
+                        tip = a.error;
+                    end
+                case 'learned'
+                    [~, bi] = autoseg.resolve_seg_backend('learned');
+                    ok = bi.learned_available;
+                    if ok
+                        msg = '✓ Learned nnU-Net ready (AortaSeg24 weights found)';
+                    else
+                        msg = ['Learned model unavailable — no AortaSeg24 ' ...
+                               'checkpoint. See docs/LEARNED_SEGMENTATION_ROADMAP.md.'];
+                        tip = bi.learned_reason;
+                    end
+                case 'external'
+                    ok = ~isempty(app.SegLabelNifti) && isfile(app.SegLabelNifti);
+                    if ok
+                        [~, nm, ex] = fileparts(app.SegLabelNifti);
+                        if isempty(app.SegClassMap)
+                            sch = 'pipeline labels';
+                        else
+                            sch = 'Set-A paint IDs';
+                        end
+                        msg = sprintf('✓ External mask: %s%s (%s)', nm, ex, sch);
+                        tip = app.SegLabelNifti;
+                    else
+                        msg = 'No mask selected — re-pick "External mask (NIfTI)…".';
+                    end
+            end
+            if ok; col = [0 0.4 0]; else; col = [0.55 0.30 0]; end
+            if ~isempty(btn) && isvalid(btn)
+                btn.Enable = boolEnable(ok);
+                btn.Tooltip = tip;
+            end
+            % TS ROI checkboxes only apply to the TotalSegmentator source.
+            is_ts = strcmp(app.SegBackend, 'totalsegmentator');
+            for cb = findobj(app.SideContent, '-regexp', 'Tag', '^ts_target_').'
+                if isvalid(cb); cb.Enable = boolEnable(is_ts); end
+            end
+            if ~isempty(stat) && isvalid(stat)
+                stat.Text = msg; stat.FontColor = col;
+            end
+        end
+
         function runAutoSegFull(app)
             % Automatic-mode segmentation via the proven engine, WITHOUT the
             % centerline (opts.skip_centerline). Produces the same fully-
@@ -6772,6 +6899,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 opts = struct();
                 opts.D = app.D;
                 opts.skip_centerline = true;
+                opts = applySegBackendOpts(app, opts);
                 opts.out_dir = fullfile(tempdir, sprintf('evar_seg_%s', ...
                     char(java.util.UUID.randomUUID)));
                 out = run_planner_headless('', opts);
@@ -6835,6 +6963,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 opts = struct();
                 opts.D = app.D;                 % skip DICOM read, use loaded vol
                 opts.centerline_backend = 'auto';
+                opts = applySegBackendOpts(app, opts);
                 opts.out_dir = fullfile(tempdir, sprintf('evar_autopipe_%s', ...
                     char(java.util.UUID.randomUUID)));
                 out = run_planner_headless('', opts);

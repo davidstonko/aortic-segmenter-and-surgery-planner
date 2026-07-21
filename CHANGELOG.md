@@ -27,12 +27,24 @@ mask today, before any model is trained**.
 - **`preprocess.auto_seeds_anatomic`** — falls back to the pipeline aorta label
   (1) when the label volume isn't in TS class ids, so learned/external label
   volumes seed correctly. TS callers never reach the fallback (unchanged).
-- **`tests/test_seg_backend.m`** (new, 7/7) — resolver mapping/aliases,
+- **GUI Step-2 "Source" dropdown** — `AorticCenterlineApp`'s ⚡ Auto-segment
+  section gains a segmentation-source selector (TotalSegmentator / Learned
+  nnU-Net / External mask (NIfTI)…). Choosing *External mask* prompts for the
+  label NIfTI and asks whether it is painted in Set-A paint IDs (auto-selects
+  `setA_class_map.json`) or already in pipeline labels. The Run button + status
+  line reflect whether the chosen source is usable (TS not on PATH, no nnU-Net
+  checkpoint, no mask picked), and the TS ROI checkboxes grey out for non-TS
+  sources. Both run paths (`runAutoSegFull` step-by-step and `runAutoPipeline`
+  one-click) apply the selection; a non-TS source always takes the full-engine
+  path since it supplies a complete labelled mask, not a TS ROI selection.
+- **`tests/test_seg_backend.m`** (new, 8/8) — resolver mapping/aliases,
   `auto`→TS without weights, bad-backend rejection, external-requires-NIfTI,
   learned-without-weights clean error, an **end-to-end external run** on a
   synthetic pipeline-scheme Y-tube (adopts mask, skips TS, finds all three
-  seeds), and empty-mask rejection. Full synthetic suite: **26/26**
-  (seg_backend + de-id + loader + phantom).
+  seeds), empty-mask rejection, and a display-guarded **GUI dropdown test**
+  (renders, defaults to TS, disables Run for an unusable source, toggles the
+  ROI checkboxes) with guaranteed figure cleanup. Full synthetic suite:
+  **27/27** (seg_backend + de-id + loader + phantom).
 
 ## 2026-07-15 — Phase 0 built: DICOM de-identification intake + provenance manifest
 

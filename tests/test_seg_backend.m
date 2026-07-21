@@ -111,6 +111,58 @@ classdef test_seg_backend < matlab.unittest.TestCase
             tc.verifyTrue(isfield(out, 'label_branch') && any(out.label_branch(:) == 8));
         end
 
+        function gui_dropdown_selects_and_reflects_backend(tc)
+            % Step-2 "Source" dropdown: renders, defaults to TS, switching to
+            % a source with no backend installed disables Run with an honest
+            % message, and the TS ROI checkboxes follow the selection.
+            tc.assumeTrue(usejava('desktop') || feature('ShowFigureWindows'), ...
+                'GUI test requires a display');
+            prev_home = char(java.lang.System.getProperty('user.home'));
+            tmp_home  = tempname(); mkdir(tmp_home);
+            java.lang.System.setProperty('user.home', tmp_home);
+            a = app.AorticCenterlineApp();
+            restore = onCleanup(@() cleanup_gui(a, prev_home, tmp_home));
+            pause(0.4);
+
+            sz = [60 60 120];
+            D = struct('vol', int16(zeros(sz)), 'pixel_mm', [1 1], ...
+                'slice_spacing_mm', 1.0, 'is_volume', true, ...
+                'z_normalized', true, 'series_description', 'test', ...
+                'slice_z_mm', (1:sz(3))');
+            a.injectCT(D); pause(0.2);
+            a.setStepPublic(2); pause(0.2);
+            a.setStepModePublic(2, 'auto'); pause(0.4);
+
+            dd = findobj(a.UIFigure, 'Tag', 'seg_backend_dd');
+            st = findobj(a.UIFigure, 'Tag', 'ts_status');
+            bt = findobj(a.UIFigure, 'Tag', 'ts_run_btn');
+            tc.assertNotEmpty(dd, 'segmentation-source dropdown not rendered');
+            tc.verifyNotEmpty(st); tc.verifyNotEmpty(bt);
+            tc.verifyEqual(dd(1).ItemsData, ...
+                {'totalsegmentator', 'learned', 'external'});
+            tc.verifyEqual(dd(1).Value, 'totalsegmentator');   % default unchanged
+
+            % Switch to the learned backend (no checkpoint in the test env).
+            dd(1).Value = 'learned';
+            feval(dd(1).ValueChangedFcn, dd(1), []); pause(0.2);
+            % .Enable is a matlab.lang.OnOffSwitchState — compare as char.
+            tc.verifyEqual(char(bt(1).Enable), 'off', ...
+                'Run must be disabled when the learned model has no weights');
+            tc.verifyTrue(contains(lower(st(1).Text), 'unavailable'));
+            cbs = findobj(a.UIFigure, '-regexp', 'Tag', '^ts_target_');
+            if ~isempty(cbs)
+                tc.verifyEqual(char(cbs(1).Enable), 'off', ...
+                    'TS ROI checkboxes should be inert for a non-TS source');
+            end
+
+            % Back to TotalSegmentator restores the ROI checkboxes.
+            dd(1).Value = 'totalsegmentator';
+            feval(dd(1).ValueChangedFcn, dd(1), []); pause(0.2);
+            if ~isempty(cbs)
+                tc.verifyEqual(char(cbs(1).Enable), 'on');
+            end
+        end
+
         function external_empty_mask_errors(tc)
             C = tc.make_labeled_case();
             nifti = fullfile(tc.tmp, 'empty.nii');
@@ -162,5 +214,21 @@ classdef test_seg_backend < matlab.unittest.TestCase
             D.series_description = 'synthetic labeled case';
             C = struct('label', lab, 'D', D);
         end
+    end
+end
+
+% =========================================================================
+function cleanup_gui(a, prev_home, tmp_home)
+%CLEANUP_GUI  Always close the uifigure and restore the sandboxed home, so a
+%   failed assertion never leaves a stale GUI window behind.
+    try
+        if isvalid(a) && isvalid(a.UIFigure); delete(a.UIFigure); end
+    catch
+    end
+    if ~isempty(prev_home)
+        java.lang.System.setProperty('user.home', prev_home);
+    end
+    if ~isempty(tmp_home) && exist(tmp_home, 'dir')
+        rmdir(tmp_home, 's');
     end
 end
