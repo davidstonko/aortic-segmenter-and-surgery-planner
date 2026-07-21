@@ -268,15 +268,24 @@ verified class map.
   (`Phase_B_needs_weights`) until a checkpoint exists; point
   `AORTASEG24_MODEL_DIR` at it and `auto`/`learned` execute end-to-end with
   **no further MATLAB changes** (GOALS #26 B1).
+- **GUI Step-2 "Source" dropdown — BUILT.** `AorticCenterlineApp`'s
+  ⚡ Auto-segment section now has a segmentation-source dropdown
+  (TotalSegmentator / Learned nnU-Net / External mask (NIfTI)…). Picking
+  *External mask* prompts for the label NIfTI and asks whether it is painted in
+  Set-A paint IDs (auto-selects `setA_class_map.json`) or already in pipeline
+  labels. The Run button and status line reflect whether the chosen source is
+  actually usable — TS not on PATH, no nnU-Net checkpoint, or no mask picked —
+  and the TS ROI checkboxes grey out for non-TS sources. Both GUI run paths
+  (step-by-step *Run segmentation only* and one-click *Auto-run*) honour the
+  selection.
 - Small enabling fix: `preprocess.auto_seeds_anatomic` now falls back to the
   pipeline aorta label (1) when the label volume isn't in TS ids — so
   learned/external label volumes seed correctly. TS path unchanged.
 
-**Remaining:** the GUI Step-2 dropdown (headless is done); a learned-seg run on
-a held-out case once weights exist.
+**Remaining:** a learned-seg run on a held-out case once weights exist.
 
-**Deliverable:** ✅ backend selector + external-mask path (tested); learned run
-pending weights.
+**Deliverable:** ✅ backend selector (headless + GUI) + external-mask path,
+tested; learned run pending weights.
 
 ## Phase 5 — Validation & closing the open goals
 
