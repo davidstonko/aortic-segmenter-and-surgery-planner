@@ -2,6 +2,33 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-07-22 — Annotation QC gate + Slicer color table (annotation enablement)
+
+Tooling to make the incoming annotation cohort safe and consistent as CTAs
+are collected:
+
+- **`intake.verify_annotation`** — a QC gate run on every finished Set-A mask
+  before it enters the cohort. Translates the mask to the pipeline scheme and
+  checks what the planner actually depends on. **Errors** (block the case):
+  empty mask, missing aorta (1) / L CFA (4) / R CFA (5), grid mismatch vs the
+  CT, labels outside the scheme (i.e. an untranslated paint mask — with a hint
+  to pass the class map), and aorta-not-connected-to-a-CFA (per-side
+  continuity). **Warnings**: no celiac (8)/SMA (9) (proximal seed falls back to
+  aorta-top), missing renals/iliacs, tiny stray labels. Catches the silent
+  mistakes that would otherwise surface as a `SeedFailed` run many cases later.
+- **`intake.write_slicer_color_table`** + generated
+  **`data/setA_slicer_colors.ctbl`** — a 3D Slicer color table keyed by the
+  SOP paint-IDs (aorta red, iliacs blue, CFAs green, renals purple,
+  celiac/SMA orange, internal iliacs grey), so every segment carries the right
+  ID and name automatically. Generated from `setA_class_map.json` so the two
+  never drift.
+- **`tests/test_verify_annotation.m`** (new, 6/6): clean mask passes;
+  missing-CFA, grid-mismatch, disconnected-CFA, and untranslated-paint-mask
+  are caught; color table covers all 13 structures. Full synthetic suite
+  **33/33** (verify_annotation + seg_backend + de-id + loader + phantom).
+- SOP updated: QC-gate step (every case), color-table loading, checklist.
+  `.gitignore` ships the `.ctbl` (non-PHI, like the class maps).
+
 ## 2026-07-15 — Phase 4: segmentation-backend selector + external-mask planning
 
 Wired the learned-segmentation **backend selector** into the planner, and — the
