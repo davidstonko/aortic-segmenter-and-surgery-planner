@@ -120,7 +120,12 @@ best off-axial.
    - **Islands** to remove disconnected specks; **Scissors** to cut veins /
      adjacent bowel; **Paint/Erase** (2–3 px) for the fine corrections.
    - Assign each segment to its **Set-A paint ID** (§1) via a saved color
-     table so IDs are consistent across cases.
+     table so IDs are consistent across cases. Load the generated table
+     [`data/setA_slicer_colors.ctbl`](../data/setA_slicer_colors.ctbl) in
+     Slicer's **Colors** module (Add → from file) — then segment 8 is
+     `left_common_iliac`, 24 is `left_common_femoral`, etc., with no manual
+     ID bookkeeping. (Regenerate it with `intake.write_slicer_color_table`
+     if the class map ever changes.)
    - Fix every §3 transition on the reformats.
 3. **The app's editor** can do touch-ups on a loaded case, but Slicer is better
    for painting full volumes end-to-end.
@@ -132,6 +137,21 @@ best off-axial.
 - Export the segmentation as a **NIfTI label volume on the CT grid**:
   `<codename>_segA.nii.gz` (same geometry/affine as the CT — Slicer's
   "Export to file" with the master volume as reference).
+- **Run the QC gate on every finished mask** (not just case #1) before it
+  enters the cohort — it catches the silent mistakes (missing CFA, off-grid
+  export, a leg disconnected from the aorta, untranslated paint IDs) that
+  would otherwise surface many cases later as a failed planner run:
+
+  ```matlab
+  rep = intake.verify_annotation('<codename>_segA.nii.gz', struct( ...
+      'class_map', fullfile('data','setA_class_map.json'), ...
+      'ct', preprocess.dicom_load('<codename>_dicom')));   % or the CT NIfTI / size
+  assert(rep.ok, 'annotation QC failed — fix before adding to the cohort');
+  ```
+
+  Errors block the case (aorta/CFAs missing, grid mismatch, aorta↔CFA not
+  connected, out-of-scheme labels); warnings (no celiac/SMA, missing
+  renals/iliacs) are flagged but allowed.
 - **Verify the IDs round-trip** before trusting the scheme:
 
   ```matlab
@@ -197,8 +217,10 @@ Do **not** annotate in arbitrary order (roadmap Phase 2):
 - [ ] Lumen only — no wall, no thrombus, no mural calcium (§2).
 - [ ] Every §3 transition set on the reformats (aorta↔CIA↔EIA↔CFA, IIA, renals,
       celiac/SMA).
-- [ ] Segments assigned to Set-A paint IDs via the saved color table (§1).
+- [ ] Segments assigned to Set-A paint IDs via the `setA_slicer_colors.ctbl`
+      color table (§1, §4).
 - [ ] Exported `<codename>_segA.nii.gz` on the CT grid, in the regulated store.
+- [ ] `intake.verify_annotation` passes (every case, §5).
 - [ ] (case #1) Round-trip verified through `setA_class_map.json` (§5).
 - [ ] Row noted in the cohort manifest (pathology / phase / split already set
       at intake).

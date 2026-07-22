@@ -12,6 +12,7 @@
 data/*
 !data/aortaseg24_class_map.json
 !data/setA_class_map.json
+!data/setA_slicer_colors.ctbl
 *.dcm
 *.DCM
 *.nii
