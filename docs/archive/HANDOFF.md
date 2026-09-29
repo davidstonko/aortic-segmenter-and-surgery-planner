@@ -1,7 +1,8 @@
 # Phase 3 — handoff after second session
 
-> **⚠️ HISTORICAL — superseded by [STATUS.md](STATUS.md) and
-> [CHANGELOG.md](CHANGELOG.md) as of 2026-05-18.** This document
+> **⚠️ HISTORICAL — superseded by [STATUS.md](STATUS.md) (itself now
+> archived; see the top-level [README.md](../../README.md)) and
+> [CHANGELOG.md](../../CHANGELOG.md) as of 2026-05-18.** This document
 > captures the state of Phase 3 at the 2026-05-16 handoff and is kept
 > for archival reasons. Specific claims below (test counts, IFU device
 > count, "known issues", pipeline stages) reflect that snapshot, not

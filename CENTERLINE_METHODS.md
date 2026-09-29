@@ -1,6 +1,6 @@
 # Centerline extraction — methods survey for Phase 3 (AINN/EVAR)
 
-> **Note:** Method survey from project bootstrap; the production pipeline now uses TotalSegmentator + VMTK (primary) — see STATUS.md / README.md. The survey below is retained for reference.
+> **Note:** Method survey from project bootstrap; the production pipeline now uses TotalSegmentator + VMTK (primary) — see [README.md](README.md). The survey below is retained for reference.
 
 This document summarises the algorithmic options for extracting an aorta + iliac centerline from a contrast-enhanced CT (the "Aorta 0.75 Br36 3" series of the JohnDoe1 dataset, 1219 slices at 0.77 mm × 0.5 mm spacing). The centerline is the input to the AINN forward physics simulator (it defines $g_v(s)$ in §4.1 of the manuscript), so its accuracy directly bounds downstream prediction quality. Industry-standard accuracy on the Rotterdam coronary-centerline benchmark is sub-millimetre mean distance to the consensus reference; our application is the abdominal aorta (much larger lumen, less branching), so the bar is ~1 mm at the iliacs and ~2 mm at the aorta.
 

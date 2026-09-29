@@ -1,4 +1,4 @@
-# TEVAR architectural review (goal #14)
+# TEVAR architectural review
 
 _Phase 5 forward-look. NOT a refactor plan — this is the punch list of
 EVAR-specific assumptions baked into the codebase today that would have
@@ -7,6 +7,9 @@ to be addressed before a clean TEVAR (thoracic) extension._
 The North Star explicitly calls for TEVAR as a Phase-5 expansion, but
 asks that current-phase decisions "not preclude" it. This doc is the
 state-of-the-codebase audit against that bar, as of 2026-05-16.
+
+> Files marked *(proposed)* below do not exist yet; they are design
+> suggestions for a future TEVAR extension, not shipped code.
 
 ## Hard-coded assumptions to revisit
 
@@ -48,8 +51,8 @@ are different in kind: thoracic neck length, arch angulation,
 proximal landing zone diameter range (20-46 mm for Valiant Captivia
 vs 17-32 mm for an Endurant II), and stent oversizing rules.
 
-**Decision required:** split `+ifu/devices.m` into `+ifu/devices_abd.m`
-and `+ifu/devices_thoracic.m`; `+ifu/match_devices` takes an
+**Decision required:** split `+ifu/devices.m` into `+ifu/devices_abd.m` *(proposed)*
+and `+ifu/devices_thoracic.m` *(proposed)*; `+ifu/match_devices` takes an
 `opts.indication = {'evar','tevar','hybrid'}` parameter.
 
 ### 4. Sizing measurements assume infrarenal anatomy
@@ -95,7 +98,7 @@ source_seed, target_seeds, D, opts)` where `target_seeds` is K×3.
 the abdominal aorta + iliacs. A TEVAR test set needs an arch phantom
 (zones 0–4) and a thoracic-aneurysm variant.
 
-**Decision required:** add `+phantom/build_arch.m` and a tevar-AAA
+**Decision required:** add `+phantom/build_arch.m` *(proposed)* and a tevar-AAA
 variant with realistic Ishimaru-zone radii.
 
 ## What's already TEVAR-friendly
@@ -120,7 +123,7 @@ These would survive the TEVAR extension without changes:
    entry points (`run_planner_headless`, `evar_plan.generate_plan`).
 2. Generalise `auto_seeds_anatomic` to N seeds via an enum-driven
    anchor table.
-3. Add `+ifu/devices_thoracic.m`; `ifu.match_devices` accepts an
+3. Add `+ifu/devices_thoracic.m` *(proposed)*; `ifu.match_devices` accepts an
    `opts.indication` filter.
 4. Refactor `measure_from_centerline` into indication-specific
    landing-zone measurement helpers.

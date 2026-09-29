@@ -41,7 +41,7 @@ These are settled and drive every phase below.
 
 ## Why this is the next phase
 
-The heuristic pipeline works on 2 of 4 real CTAs (GOALS #41). The root cause
+The heuristic pipeline works on 2 of 4 real CTAs (the generalization gap). The root cause
 is settled: on low-contrast arterial breaks, HU-threshold region-growing
 either misses the vessel (HU ≥ 150) or leaks into veins/soft tissue
 (HU ≥ 100) — it cannot both bridge the gap and stay vessel-confined. No
@@ -267,7 +267,7 @@ verified class map.
   `translate_labels` → pipeline mask, adopted directly. Errors cleanly
   (`Phase_B_needs_weights`) until a checkpoint exists; point
   `AORTASEG24_MODEL_DIR` at it and `auto`/`learned` execute end-to-end with
-  **no further MATLAB changes** (GOALS #26 B1).
+  **no further MATLAB changes**.
 - **GUI Step-2 "Source" dropdown — BUILT.** `AorticCenterlineApp`'s
   ⚡ Auto-segment section now has a segmentation-source dropdown
   (TotalSegmentator / Learned nnU-Net / External mask (NIfTI)…). Picking

@@ -287,5 +287,6 @@ Status: not yet evaluated.
 
 ## Phase-3 case (JohnDoe1 EVAR)
 
-Internal prospective-validation case (preop CTA + intraop XA). See
-`STATUS.md` for end-to-end pipeline results.
+Internal prospective-validation case (preop CTA + intraop XA). Not
+distributed. See the "Status and known limitations" section of the
+top-level [README](../README.md) for current end-to-end results.

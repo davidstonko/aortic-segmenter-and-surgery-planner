@@ -1,7 +1,8 @@
 # Phase 3 session log — what got built while you were away
 
-> **⚠️ HISTORICAL — superseded by [STATUS.md](STATUS.md) and
-> [CHANGELOG.md](CHANGELOG.md) as of 2026-05-18.** This is the original
+> **⚠️ HISTORICAL — superseded by [STATUS.md](STATUS.md) (itself now
+> archived; see the top-level [README.md](../../README.md)) and
+> [CHANGELOG.md](../../CHANGELOG.md) as of 2026-05-18.** This is the original
 > Phase 3 bootstrap session log from May 5, 2026. The "Done" /
 > "Partway" / "To fill in" lists reflect the state at that point and
 > are no longer accurate. For the live state, read `STATUS.md`.
