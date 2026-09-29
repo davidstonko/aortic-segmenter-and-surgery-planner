@@ -51,10 +51,16 @@ function plan = generate_plan(planner_result, opts)
 
     elig_mask = arrayfun(@(d) d.eligibility.eligible, plan.ranked_devices);
     elig = plan.ranked_devices(elig_mask);
-    if isempty(elig)
+    if ~plan.qc_usable
+        % Never name a device off a result QC has marked untrustworthy —
+        % the eligibility table is still written for inspection.
+        plan.recommendation = '';
+        rec_line = ['NO RECOMMENDATION — planner QC marked this result ' ...
+            'unreliable; device eligibility below is for inspection only.'];
+    elseif isempty(elig)
         plan.recommendation = '';
         rec_line = 'NO ON-LABEL DEVICE — every catalogued stent graft has at least one IFU criterion outside its labeled range.';
-        binding_lines = arrayfun(@(d) sprintf('    %s — binding: %s (margin %.1f)', ...
+        binding_lines = arrayfun(@(d) sprintf('    %s — binding: %s (margin %.1f mm)', ...
             d.name, d.eligibility.binding, d.eligibility.min_margin), ...
             plan.ranked_devices, 'UniformOutput', false);
         rec_line = sprintf('%s\n  Closest-to-eligible (smallest violation first):\n%s', ...
@@ -64,9 +70,13 @@ function plan = generate_plan(planner_result, opts)
         rec_line = sprintf('Recommended device: %s by %s (%s body)', ...
             elig(1).name, elig(1).manufacturer, elig(1).body_design);
         if numel(elig) > 1
-            alts = arrayfun(@(d) sprintf('%s (margin %.1f)', d.name, d.eligibility.min_margin), ...
+            alts = arrayfun(@(d) sprintf('%s (margin %.1f mm)', d.name, d.eligibility.min_margin), ...
                 elig(2:end), 'UniformOutput', false);
             rec_line = sprintf('%s\n  Alternatives: %s', rec_line, strjoin(alts, ', '));
+        end
+        cav = elig(1).eligibility.cautions;
+        if ~isempty(cav)
+            rec_line = sprintf('%s\n  CAUTION: %s', rec_line, strjoin(cav, '; '));
         end
     end
 
@@ -80,22 +90,32 @@ function plan = generate_plan(planner_result, opts)
             m.neck_diameter_mm, neck_len_str(m), ang_str(m, 'neck_angulation_deg'))
         sprintf('                   (α suprarenal-to-neck %s)', ...
             ang_str(m, 'neck_angulation_alpha_deg'))
-        sprintf('  Right iliac:     lumen Ø %.1f mm, landing-zone length %.1f mm', ...
+        sprintf('                   (neck start: %s)', landmark_str(m))
+        sprintf('  Right iliac:     lumen Ø %.1f mm, path to terminus %.0f mm (seal length not assessed)', ...
             m.iliac_R_diameter_mm, m.iliac_R_length_mm)
-        sprintf('  Left iliac:      lumen Ø %.1f mm, landing-zone length %.1f mm', ...
+        sprintf('  Left iliac:      lumen Ø %.1f mm, path to terminus %.0f mm (seal length not assessed)', ...
             m.iliac_L_diameter_mm, m.iliac_L_length_mm)
         sprintf('  Peak aneurysm:   lumen Ø %.1f mm (R %.1f mm) — excludes mural thrombus%s', ...
             2*m.max_aneurysm_R_mm, m.max_aneurysm_R_mm, no_aneurysm_note(aneurysm_detected))
     };
+    na = {};
+    if ~isempty(plan.ranked_devices) && isfield(plan.ranked_devices(1).eligibility, 'not_assessed')
+        na = plan.ranked_devices(1).eligibility.not_assessed;
+    end
+    if ~isempty(na)
+        meas_lines{end+1} = sprintf('  NOT ASSESSED:    %s — verify on CT before relying on eligibility', ...
+            strjoin(regexprep(na, '\s*\(min.*\)', ''), '; '));
+    end
 
     plan.disclaimer = ['RESEARCH USE ONLY. Sizing values were auto-derived ' ...
         'from a TotalSegmentator-driven centerline and have NOT been ' ...
         'verified against the source CT or by an operator. All diameters ' ...
         'are CONTRAST-LUMEN diameters and exclude mural thrombus / outer ' ...
-        'wall, so the aneurysm Ø may under-call the true outer-wall sac. ' ...
-        'Device IFU criteria are from peer-reviewed published summaries ' ...
-        'and may not reflect the current vendor IFU. Do not use for ' ...
-        'clinical decision-making.'];
+        'wall, so the aneurysm Ø may under-call the true outer-wall sac, ' ...
+        'and lumen neck/iliac Ø under-call IFU ranges defined on the outer ' ...
+        'wall. Device IFU criteria were checked against manufacturer/FDA ' ...
+        'labeling (see sources) but labeling changes; confirm against the ' ...
+        'current vendor IFU. Do not use for clinical decision-making.'];
 
     plan.timestamp = datestr(now, 'yyyy-mm-ddTHH:MM:SS'); %#ok<DATST,TNOW1>
     qc_banner = '';
@@ -139,7 +159,10 @@ function write_text(path, plan)
         d = plan.ranked_devices(k);
         ec = d.eligibility;
         if ec.eligible
-            verdict = sprintf('ELIGIBLE  (margin %.1f)', ec.min_margin);
+            verdict = sprintf('ELIGIBLE  (margin %.1f mm)', ec.min_margin);
+            if isfield(ec, 'cautions') && ~isempty(ec.cautions)
+                verdict = sprintf('%s  [caution: %s]', verdict, strjoin(ec.cautions, '; '));
+            end
         else
             verdict = sprintf('OFF-LABEL (%s)', strjoin(ec.fail_reasons, '; '));
         end
@@ -157,10 +180,12 @@ function write_text(path, plan)
         'neck angulation β (≤ max)', m.neck_angulation_deg,  envelope_neck_ang_max(plan);
         'iliac lumen Ø R',        m.iliac_R_diameter_mm,     envelope_iliac_dia(plan);
         'iliac lumen Ø L',        m.iliac_L_diameter_mm,     envelope_iliac_dia(plan);
-        'iliac length R',         m.iliac_R_length_mm,       envelope_iliac_len_min(plan);
-        'iliac length L',         m.iliac_L_length_mm,       envelope_iliac_len_min(plan)};
+        'iliac seal length R',    seal_or_nan(m, 'R'),       envelope_iliac_len_min(plan);
+        'iliac seal length L',    seal_or_nan(m, 'L'),       envelope_iliac_len_min(plan)};
     for ri = 1:size(rows, 1)
-        fprintf(fid, '  %-32s %-12.1f %s\n', rows{ri, 1}, rows{ri, 2}, rows{ri, 3});
+        v = rows{ri, 2};
+        if isnan(v); vs = 'not assessed'; else; vs = sprintf('%.1f', v); end
+        fprintf(fid, '  %-32s %-12s %s\n', rows{ri, 1}, vs, rows{ri, 3});
     end
 
     fprintf(fid, '\nIFU sources cited:\n');
@@ -211,6 +236,26 @@ function s = ang_str(m, field)
     else
         s = sprintf('%.1f°', m.(field));
     end
+end
+
+function s = landmark_str(m)
+%LANDMARK_STR  Where the neck's proximal boundary came from.
+    if isfield(m, 'neck_landmark') && strcmp(m.neck_landmark, 'lowest_renal')
+        s = sprintf('lowest renal ostium (%s)', m.lowest_renal_side);
+    else
+        why = 'no usable renal landmark';
+        if isfield(m, 'diagnostic') && isfield(m.diagnostic, 'renal_note') && ...
+                ~isempty(m.diagnostic.renal_note)
+            why = m.diagnostic.renal_note;
+        end
+        s = sprintf(['HEURISTIC (%s) — neck length may include the visceral ' ...
+            'segment; verify on CT'], why);
+    end
+end
+
+function v = seal_or_nan(m, side)
+    f = sprintf('iliac_%s_seal_length_mm', side);
+    if isfield(m, f); v = m.(f); else; v = NaN; end
 end
 
 function s = no_aneurysm_note(aneurysm_detected)

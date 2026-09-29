@@ -152,12 +152,16 @@ classdef test_evar_plan < matlab.unittest.TestCase
             % Very narrow neck — under every device's IFU minimum. Plan
             % should run, recommendation should be empty, rationale
             % should list closest-to-eligible devices.
+            % The proximal end must be the WIDEST node, or
+            % normalize_direction flips the polyline and the "neck" gets
+            % measured on the other end (the old fixture did exactly that,
+            % measured a 16 mm neck, and only "failed" every device via the
+            % vacuous iliac path-length check, since removed).
             n = 200;
             Pv = [zeros(n,1), zeros(n,1), (0:n-1).'];
-            R = 5 * ones(n, 1);   % 10mm everywhere, no aneurysm
-            R(30:60) = 4;          % tiny neck (8mm Ø)
-            R(60:120) = linspace(4, 8, 61);
-            R(120:end) = 8;
+            R = 9 * ones(n, 1);            % 18 mm suprarenal, no aneurysm
+            R(30:90) = 6;                  % 12 mm neck — under every IFU min
+            R(90:end) = linspace(6, 4, n - 89);   % tapering distally
             pr = struct('Pv_mm_right', Pv, 'R_mm_right', R, ...
                         'Pv_mm_left',  Pv, 'R_mm_left',  R, ...
                         'arc_R_mm', 200, 'arc_L_mm', 200);

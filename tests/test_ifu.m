@@ -200,10 +200,13 @@ classdef test_ifu < matlab.unittest.TestCase
         end
 
         function bifurc_angle_constraint_skipped_when_device_has_nan(tc)
-            % All catalogued devices default to NaN for the bifurc-angle
-            % slot. With a wildly wide patient bifurc angle (150°),
-            % eligibility should still pass (constraint absent).
+            % Devices WITHOUT a labeled iliac-angle limit (NaN) must ignore
+            % a wildly wide patient bifurc angle (150°). AFX2 is labeled
+            % (≤90°) since the 2026-09-29 labeling check — covered by
+            % test_ifu_labeling instead.
             db = ifu.devices();
+            db = db(isnan([db.iliac_bifurc_angle_max_deg]));
+            tc.assumeNotEmpty(db);
             for k = 1:numel(db)
                 d = db(k);
                 m = base_measurement(d);

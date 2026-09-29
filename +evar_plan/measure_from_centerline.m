@@ -27,13 +27,25 @@ function meas = measure_from_centerline(planner_result, opts)
 %                                landing zone), at the neck caliber.
 %                                Deliberately NOT averaged through the
 %                                dilating segment up to the aneurysm.
-%       .neck_length_mm          non-aneurysmal infrarenal neck length
-%                                (from lowest-renal-level to start of
-%                                aneurysm = where R first exceeds
-%                                opts.aneurysm_R_mm). NaN when no discrete
-%                                aneurysm onset is detected (see
-%                                .aneurysm_detected) — reporting a number
-%                                there would read as a real neck.
+%       .neck_length_mm          non-aneurysmal infrarenal neck length:
+%                                from the lower margin of the lowest renal
+%                                ostium to the first sustained point where
+%                                the lumen exceeds the reference neck
+%                                caliber by opts.neck_length_growth_frac
+%                                (10%) or crosses opts.aneurysm_R_mm,
+%                                whichever is first. NaN when no aneurysm
+%                                onset is detected (see .aneurysm_detected).
+%       .neck_landmark           'lowest_renal' (anatomic, from renal
+%                                labels 6/7) or 'heuristic' (fallback when
+%                                no renal labels: fixed supraceliac skip +
+%                                narrowing — can start above the celiac and
+%                                over-call neck length; verify on CT).
+%       .lowest_renal_side       'L' | 'R' | '' — side of the lowest renal.
+%       .bifurcation_source      'iliac_labels' (first slice with both iliac
+%                                labels — the anatomic bifurcation) or
+%                                'centerline_divergence' (fallback; in an
+%                                aneurysm sac the two centerlines diverge
+%                                ABOVE the true bifurcation).
 %       .aneurysm_detected       logical — true when an aneurysm onset
 %                                (R > opts.aneurysm_R_mm) was found in the
 %                                proximal-aorta search window.
@@ -53,8 +65,13 @@ function meas = measure_from_centerline(planner_result, opts)
 %       .iliac_R_diameter_mm     R-CFA terminus diameter (mean of last
 %                                opts.iliac_window_mm of arc)
 %       .iliac_L_diameter_mm     L-CFA terminus diameter
-%       .iliac_R_length_mm       length of R-iliac from bifurcation to terminus
-%       .iliac_L_length_mm       length of L-iliac
+%       .iliac_R_length_mm       R path length, bifurcation → centerline
+%                                terminus (CIA+EIA+CFA). NOT a seal length.
+%       .iliac_L_length_mm       L path length (same caveat)
+%       .iliac_R/L_seal_length_mm  common-iliac seal length — NaN: the
+%                                pipeline labels don't separate CIA/EIA, so
+%                                the IFU iliac-seal criterion is reported
+%                                as not assessed.
 %       .max_aneurysm_R_mm       peak lumen R along the centerline
 %       .aneurysm_max_diameter_mm  schema-aligned diameter = 2 ×
 %                                  max_aneurysm_R_mm (both emitted)
@@ -100,11 +117,31 @@ function meas = measure_from_centerline(planner_result, opts)
     if ~isfield(opts, 'bifurc_threshold_mm'); opts.bifurc_threshold_mm = 5; end
     [bifurc_arc_R, bifurc_arc_L] = find_bifurcation( ...
         pr.Pv_mm_right, pr.Pv_mm_left, opts.bifurc_threshold_mm);
+    % Prefer the ANATOMIC bifurcation from the iliac labels. In an
+    % aneurysm sac the two VMTK centerlines (one per CFA) diverge INSIDE
+    % the sac, well above the flow divider, so the centerline-divergence
+    % point can sit tens of mm too high — mis-placing the iliac-diameter
+    % sampling point and the aorta's distal end. (Found on a real case:
+    % divergence at slice ~383 vs iliac origin at ~456, 0.5 mm slices.)
+    meas.bifurcation_source = 'centerline_divergence';
+    [bR, bL] = anatomic_bifurcation_arcs(pr);
+    if ~isnan(bR) && ~isnan(bL)
+        bifurc_arc_R = bR; bifurc_arc_L = bL;
+        meas.bifurcation_source = 'iliac_labels';
+    end
 
     [meas.iliac_R_diameter_mm, meas.iliac_R_length_mm, arc_R] = ...
         side_measurements(pr.Pv_mm_right, pr.R_mm_right, bifurc_arc_R, opts);
     [meas.iliac_L_diameter_mm, meas.iliac_L_length_mm, ~] = ...
         side_measurements(pr.Pv_mm_left,  pr.R_mm_left,  bifurc_arc_L, opts);
+    % iliac_*_length_mm is the bifurcation-to-terminus PATH length (CIA +
+    % EIA + CFA, typically 150-250 mm) — NOT a seal-zone length. The IFU
+    % iliac seal criterion needs the common-iliac length (bifurcation to
+    % internal-iliac origin), and the pipeline labels do not separate
+    % CIA from EIA, so it is reported as not measurable (NaN) rather than
+    % letting a 200 mm path length pass a 10-15 mm seal minimum vacuously.
+    meas.iliac_R_seal_length_mm = NaN;
+    meas.iliac_L_seal_length_mm = NaN;
 
     % Use the right branch for neck measurements (left branch shares the
     % same proximal segment). Find the aneurysm start: first arc where
@@ -155,6 +192,34 @@ function meas = measure_from_centerline(planner_result, opts)
     % between supraceliac_skip and search_end (the previous strategy),
     % which can pick the DISTAL neck (just above the bifurcation) on a
     % case where the distal neck is narrower than the proximal one.
+    % Neck length ends where the lumen exceeds the reference neck caliber
+    % (measured just below the lowest renal) by this fraction — the
+    % "length within 10% of the infrarenal diameter" convention — or at the
+    % absolute aneurysm threshold, whichever comes first.
+    if ~isfield(opts, 'neck_length_growth_frac'); opts.neck_length_growth_frac = 0.10; end
+    if ~isfield(opts, 'neck_ref_mm');             opts.neck_ref_mm             = 5;    end
+
+    % --- ANATOMIC path: anchor the neck on the lowest renal ostium ------
+    % When the planner result carries branch labels with renal arteries
+    % (6/7), the proximal neck boundary is the lower margin of the lowest
+    % renal ostium — not a radius heuristic. The heuristic below (fixed
+    % supraceliac skip + narrowing) is kept only as a flagged fallback: it
+    % can start the neck above the celiac and over-call neck length.
+    [renal_idx, lr] = renal_anchor(pr, Pv, arc, bifurc_arc_R);
+    meas.neck_landmark = 'heuristic';
+    meas.lowest_renal_side = '';
+    if ~isempty(renal_idx)
+        meas.neck_landmark = 'lowest_renal';
+        meas.lowest_renal_side = lr.side;
+        [seal_start_idx, aneurysm_idx, neck_end_idx, aneurysm_detected, ...
+            neck_dia_mm, R_neck] = renal_anchored_neck(arc, R, renal_idx, ...
+            bifurc_arc_R, opts);
+        if aneurysm_detected
+            meas.neck_length_mm = max(0, arc(neck_end_idx) - arc(seal_start_idx));
+        else
+            meas.neck_length_mm = NaN;
+        end
+    else
     idx_search_start = find(arc >= opts.supraceliac_skip_mm, 1, 'first');
     if isempty(idx_search_start); idx_search_start = 1; end
     idx_search_end = find(arc >= arc(idx_search_start) + opts.neck_search_mm, 1, 'first');
@@ -228,6 +293,8 @@ function meas = measure_from_centerline(planner_result, opts)
         % aneurysm_detected flag lets callers say "no aneurysm detected".
         meas.neck_length_mm = NaN;
     end
+    neck_end_idx = aneurysm_idx;
+    end   % heuristic fallback
     meas.neck_diameter_mm  = neck_dia_mm;   % seal-zone lumen Ø (sizing-1/2 fix)
     meas.aneurysm_detected = aneurysm_detected;
 
@@ -246,7 +313,14 @@ function meas = measure_from_centerline(planner_result, opts)
     %   (mm), so the result is independent of centerline node spacing.
     seg_mm     = opts.angulation_seg_mm;
     supra_axis = axis_vec(Pv, arc, 1, seg_mm);
-    neck_axis  = axis_vec(Pv, arc, seal_start_idx, seg_mm);
+    % The neck axis must stay INSIDE the neck: on a neck shorter than the
+    % sampling window a fixed 30 mm segment runs into the sac and biases
+    % beta low. Cap it at the neck length (10 mm floor for stability).
+    neck_seg_mm = seg_mm;
+    if aneurysm_detected
+        neck_seg_mm = min(seg_mm, max(10, arc(neck_end_idx) - arc(seal_start_idx)));
+    end
+    neck_axis  = axis_vec(Pv, arc, seal_start_idx, neck_seg_mm);
     meas.neck_angulation_alpha_deg = angle_between(supra_axis, neck_axis);
     if aneurysm_detected
         sac_axis = axis_vec(Pv, arc, aneurysm_idx, seg_mm);
@@ -294,10 +368,164 @@ function meas = measure_from_centerline(planner_result, opts)
     end
     meas.diagnostic = struct( ...
         'seal_start_arc_mm', arc(seal_start_idx), ...
+        'neck_end_arc_mm', arc(neck_end_idx), ...
         'aneurysm_start_arc_mm', arc(aneurysm_idx), ...
         'neck_baseline_R_mm', baseline_R, ...
         'bifurcation_arc_R_mm', bifurc_arc_R, ...
-        'bifurcation_arc_L_mm', bifurc_arc_L);
+        'bifurcation_arc_L_mm', bifurc_arc_L, ...
+        'neck_landmark', meas.neck_landmark, ...
+        'bifurcation_source', meas.bifurcation_source, ...
+        'renal_note', lr.note);
+end
+
+function [idx, lr] = renal_anchor(pr, Pv, arc, bifurc_arc)
+%RENAL_ANCHOR  Centerline node at the lower margin of the lowest renal
+%   ostium, or [] when the planner result can't support the landmark (no
+%   branch labels / renals, or an implausible level). Z-only matching: both
+%   centerline backends emit Z in the D.slice_z_mm frame, so this needs no
+%   in-plane axis convention.
+    idx = [];
+    lr = struct('found', false, 'side', '', 'z_idx', NaN, 'note', '');
+    if ~isfield(pr, 'label_branch') || isempty(pr.label_branch) || ...
+            ~isfield(pr, 'D') || ~isstruct(pr.D) || ~isfield(pr.D, 'pixel_mm')
+        lr.note = 'planner result has no branch labels';
+        return;
+    end
+    try
+        lr = evar_plan.lowest_renal_level(pr.label_branch, pr.D, ...
+            struct('kidney_z', kidney_extents(pr)));
+    catch ME
+        lr.note = sprintf('renal detection failed: %s', ME.message);
+        return;
+    end
+    if ~lr.found; return; end
+    zi = node_slice_index(Pv(:, 3), pr.D);
+    cand = find(zi >= lr.z_idx, 1, 'first');
+    if isempty(cand)
+        lr.note = 'centerline never reaches the renal level';
+    elseif cand == 1
+        lr.note = 'centerline starts below the renal level';
+    elseif ~isnan(bifurc_arc) && arc(cand) >= bifurc_arc - 10
+        lr.note = 'renal level at/below the bifurcation — implausible';
+    else
+        idx = cand;
+        return;
+    end
+    lr.found = false;
+end
+
+function K = kidney_extents(pr)
+%KIDNEY_EXTENTS  Per-side kidney slice ranges from the TotalSegmentator
+%   label volume (pr.ts_info.label_volume), for the renal plausibility
+%   gate. Empty struct when unavailable (external/hand-annotated masks):
+%   the gate is then skipped and the renal labels are trusted.
+    K = struct();
+    if ~isfield(pr, 'ts_info') || ~isstruct(pr.ts_info) || ...
+            ~isfield(pr.ts_info, 'label_volume') || isempty(pr.ts_info.label_volume) || ...
+            (isfield(pr, 'label_branch') && ~isequal(size(pr.ts_info.label_volume), size(pr.label_branch)))
+        return;
+    end
+    T = pr.ts_info.label_volume;
+    n2id = autoseg.class_name_to_id();
+    sides = {'L', 'kidney_left'; 'R', 'kidney_right'};
+    for s = 1:2
+        z = find(squeeze(any(any(T == n2id(sides{s, 2}), 1), 2)));
+        if isempty(z); K.(sides{s, 1}) = [NaN NaN];
+        else;           K.(sides{s, 1}) = [z(1) z(end)];
+        end
+    end
+end
+
+function [arcR, arcL] = anatomic_bifurcation_arcs(pr)
+%ANATOMIC_BIFURCATION_ARCS  Arc length on each (proximal→distal) polyline
+%   at the anatomic aortic bifurcation: the first slice where BOTH iliac
+%   labels (2 and 3) are present. NaN when labels or geometry are missing
+%   or a polyline never reaches that level.
+    arcR = NaN; arcL = NaN;
+    if ~isfield(pr, 'label_branch') || isempty(pr.label_branch) || ...
+            ~isfield(pr, 'D') || ~isstruct(pr.D) || ndims(pr.label_branch) ~= 3
+        return;
+    end
+    L = pr.label_branch;
+    z2 = find(squeeze(any(any(L == 2, 1), 2)), 1, 'first');
+    z3 = find(squeeze(any(any(L == 3, 1), 2)), 1, 'first');
+    if isempty(z2) || isempty(z3); return; end
+    zb = max(z2, z3);
+    arcR = arc_at_slice(pr.Pv_mm_right, pr.D, zb);
+    arcL = arc_at_slice(pr.Pv_mm_left,  pr.D, zb);
+end
+
+function a = arc_at_slice(Pv, D, zb)
+    a = NaN;
+    if size(Pv, 1) < 2; return; end
+    arc = [0; cumsum(vecnorm(diff(Pv, 1, 1), 2, 2))];
+    zi = node_slice_index(Pv(:, 3), D);
+    k = find(zi >= zb, 1, 'first');
+    if ~isempty(k) && k > 1; a = arc(k); end
+end
+
+function zi = node_slice_index(z_mm, D)
+%NODE_SLICE_INDEX  Fractional slice index (head at 1) of centerline Z values.
+    if isfield(D, 'slice_z_mm') && numel(D.slice_z_mm) >= 2
+        [zs, ia] = unique(double(D.slice_z_mm(:)));
+        zi = interp1(zs, ia, double(z_mm), 'linear', 'extrap');
+    else
+        zi = double(z_mm) / abs(D.slice_spacing_mm) + 1;
+    end
+end
+
+function [seal_idx, onset_idx, neck_end_idx, detected, dia_mm, R_ref] = ...
+        renal_anchored_neck(arc, R, seal_idx, bifurc_arc, opts)
+%RENAL_ANCHORED_NECK  Neck measurements starting at the lowest renal.
+%   Aneurysm onset = first sustained run of R > opts.aneurysm_R_mm between
+%   the renal level and the bifurcation. Neck end = the earlier of that
+%   onset and the first sustained run exceeding the reference neck caliber
+%   by opts.neck_length_growth_frac. A juxtarenal aneurysm (onset at the
+%   renal node) correctly yields neck length 0.
+    n = numel(R);
+    if ~isnan(bifurc_arc)
+        aorta_end = find(arc >= bifurc_arc - 5, 1, 'first');
+    else
+        aorta_end = n;
+    end
+    if isempty(aorta_end) || aorta_end <= seal_idx; aorta_end = n; end
+
+    seg_R   = R(seal_idx:aorta_end);
+    seg_arc = arc(seal_idx:aorta_end);
+    run_mm  = opts.aneurysm_min_run_mm;
+
+    abs_rel = first_sustained_run(seg_R > opts.aneurysm_R_mm, seg_arc, run_mm);
+    detected = ~isempty(abs_rel);
+
+    ref_hi = find(seg_arc >= seg_arc(1) + opts.neck_ref_mm, 1, 'first');
+    if isempty(ref_hi); ref_hi = numel(seg_R); end
+    R_ref = median(seg_R(1:ref_hi));
+    grow_rel = first_sustained_run(seg_R > (1 + opts.neck_length_growth_frac) * R_ref, ...
+        seg_arc, run_mm);
+
+    if detected
+        onset_idx = seal_idx + abs_rel - 1;
+        end_rel = abs_rel;
+        if ~isempty(grow_rel); end_rel = min(end_rel, grow_rel); end
+        neck_end_idx = seal_idx + end_rel - 1;
+    else
+        % No aneurysm: report the candidate seal-zone diameter only; the
+        % "onset" index is just the end of the seal window (used for the
+        % diagnostic + beta, which is NaN in this case anyway).
+        win = find(seg_arc >= seg_arc(1) + 30, 1, 'first');
+        if isempty(win); win = numel(seg_R); end
+        onset_idx = seal_idx + win - 1;
+        neck_end_idx = onset_idx;
+    end
+
+    % Seal-zone diameter over the proximal opts.seal_zone_mm of the neck,
+    % never extending into the dilating segment.
+    hi_rel = find(seg_arc >= seg_arc(1) + opts.seal_zone_mm, 1, 'first');
+    if isempty(hi_rel); hi_rel = numel(seg_R); end
+    if detected
+        hi_rel = min(hi_rel, max(1, (neck_end_idx - seal_idx + 1) - 1));
+    end
+    dia_mm = 2 * mean(seg_R(1:max(1, hi_rel)));
 end
 
 function [prox_idx, dia_mm, R_caliber] = locate_neck(arc, R, lo, hi, seal_zone_mm, grow_frac)
