@@ -3,11 +3,17 @@ function warm_centerline_cache()
 %   whole planner result for the two real cases (JohnDoe1, JohnDoe2) so an
 %   interactive run_planner_headless / GUI runAutoPipeline on either scan is
 %   instant. Safe to run on a parallel worker (batch).
-proj = '/Users/davidstonko/Documents/Claude/Projects/Vascular Mathematical Modeling/phase-3-real-EVAR';
+%
+%   Requires PRIVATE case data: cached CT volumes for the two development
+%   cases in the git-ignored results/logs/ folder (never distributed). Edit
+%   CASE_CACHE_DIR below if your cached volumes live elsewhere.
+proj = fileparts(fileparts(mfilename('fullpath')));   % repo root
+% --- EDIT: folder holding the locally cached CT volumes (.mat, private) ---
+CASE_CACHE_DIR = fullfile(proj, 'results', 'logs');
 cd(proj);
 addpath(proj); addpath(fullfile(proj, 'scripts'));
-cases = { fullfile(proj, 'results','logs','ct_volume.mat'),    'D_ct';   % JohnDoe1
-          fullfile(proj, 'results','logs','johndoe2_ct.mat'), 'D'    }; % JohnDoe2
+cases = { fullfile(CASE_CACHE_DIR, 'ct_volume.mat'),   'D_ct';   % JohnDoe1
+          fullfile(CASE_CACHE_DIR, 'johndoe2_ct.mat'), 'D'    }; % JohnDoe2
 for i = 1:size(cases, 1)
     L = load(cases{i, 1});
     D = L.(cases{i, 2});

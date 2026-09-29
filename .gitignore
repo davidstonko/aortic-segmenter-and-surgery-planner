@@ -86,3 +86,6 @@ docs/_build/
 
 # --- Editor backups ---
 *.bak
+
+# --- Scratch scripts (never tracked) ---
+tmp_*

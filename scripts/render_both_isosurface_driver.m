@@ -1,5 +1,11 @@
 % Driver: render JohnDoe2 + JohnDoe1 via isosurface + patch (GPU-free, fast).
-cd('/Users/davidstonko/Documents/Claude/Projects/Vascular Mathematical Modeling/phase-3-real-EVAR');
+%
+% Requires PRIVATE case data: planner_result.mat files from earlier local
+% runs, stored in the git-ignored results/ folder (never distributed). Edit
+% CASE_RESULTS_DIR below to point at your own planner outputs.
+cd(fileparts(fileparts(mfilename('fullpath'))));   % repo root
+% --- EDIT: folder holding local planner_result.mat outputs (private) ---
+CASE_RESULTS_DIR = fullfile(pwd, 'results', 'logs');
 addpath(genpath(pwd));
 
 out_dir = fullfile(pwd, 'results', 'figures', 'segmentation_recon');
@@ -7,8 +13,8 @@ if ~exist(out_dir, 'dir'); mkdir(out_dir); end
 
 cases = struct( ...
     'name', {'johndoe2', 'johndoe1'}, ...
-    'mat',  {fullfile(pwd,'results','logs','johndoe2_pass1','planner_result.mat'), ...
-             fullfile(pwd,'results','logs','johndoe1_post_johndoe2_fix','planner_result.mat')});
+    'mat',  {fullfile(CASE_RESULTS_DIR,'johndoe2_pass1','planner_result.mat'), ...
+             fullfile(CASE_RESULTS_DIR,'johndoe1_post_johndoe2_fix','planner_result.mat')});
 
 views = {'iso','anterior','lateral'};
 
