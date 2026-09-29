@@ -167,6 +167,10 @@ function out = run_planner_headless(dicom_dir, opts)
     % and not keyed by the whole-result cache, so never let a cached TS
     % result stand in for it — recompute against the provided mask.
     if external_seg; opts.result_cache = false; end
+    % Version salt for the whole-result cache. Bump it whenever code that
+    % changes the cached SEGMENTATION or CENTERLINE changes (the plan itself
+    % is always regenerated on a hit, so measurement/IFU fixes need no bump).
+    SEG_CACHE_VERSION = '2026-09-29';
     % Resolve CFA-cap options here too so they can key the result cache
     % (a different cap changes the whole downstream result).
     if ~isfield(opts, 'cap_cfa_at_inguinal'); opts.cap_cfa_at_inguinal = true; end
@@ -222,7 +226,9 @@ function out = run_planner_headless(dicom_dir, opts)
             'adaptive_hu', opts.use_adaptive_hu_follower, ...
             'reconnect', opts.reconnect_iliac_fragments, ...
             'distal_target', opts.distal_target, ...
-            'recon_vpath', opts.reconnect_vesselness_path);
+            'recon_vpath', opts.reconnect_vesselness_path, ...
+            'min_radius_vox', opts.min_radius_vox, ...
+            'seg_ver', SEG_CACHE_VERSION);
         md0 = java.security.MessageDigest.getInstance('MD5');
         hb0 = typecast(md0.digest(uint8(jsonencode(rc_key))), 'uint8');
         rc_hash = lower(reshape(dec2hex(hb0, 2)', 1, []));
@@ -232,6 +238,25 @@ function out = run_planner_headless(dicom_dir, opts)
                 S_rc = load(result_cache_file);
                 out = S_rc.out;
                 fprintf('[*] planner result cache HIT: %s\n', result_cache_file);
+                % The cache holds the SEGMENTATION + CENTERLINE (the slow
+                % part). The plan is re-derived with the CURRENT
+                % measurement + IFU code on every hit, so a sizing or
+                % device-table fix can never be masked by a stale cached
+                % plan. The caller's volume is restored (the on-disk copy
+                % drops D.vol) and the usual artefacts are written to THIS
+                % run's out_dir.
+                out.D = D;
+                out.out_dir = opts.out_dir;
+                out.seg_backend = seg_backend;
+                try
+                    out.plan = evar_plan.generate_plan(out, struct( ...
+                        'verbose', false, ...
+                        'write_file', fullfile(opts.out_dir, 'plan')));
+                catch ME_rp
+                    fprintf('[8] EVAR plan regeneration failed: %s\n', ME_rp.message);
+                    if isfield(out, 'plan'); out = rmfield(out, 'plan'); end
+                end
+                save(fullfile(opts.out_dir, 'planner_result.mat'), '-struct', 'out', '-v7.3');
                 return;
             catch ME_rc
                 fprintf('[*] planner result cache read failed (%s) — recomputing\n', ME_rc.message);
@@ -270,9 +295,13 @@ function out = run_planner_headless(dicom_dir, opts)
     t0 = tic;
     if external_seg
         % Learned/external backend already provides pipeline-scheme branch
-        % labels; mirror them into seg_uint8 so the anatomic seed finder
-        % (Step 6) has a label volume, and skip TS-space branch detection.
-        seg_uint8 = label_branch;
+        % labels; skip TS-space branch detection. seg_uint8 is the
+        % TotalSegmentator-ID volume the seed finder reads for its kidney /
+        % liver / TS-aorta anchors — there is none here, so pass an EMPTY
+        % one. (Passing label_branch was wrong: TS kidney ids 2/3 and liver
+        % 5 collide with pipeline iliacs 2/3 and R-CFA 5.) The seed finder
+        % then uses branch labels only: aorta 1, celiac 8 / SMA 9, CFAs 4/5.
+        seg_uint8 = zeros(size(label_branch), 'uint8');
         timing.extend = toc(t0);
         fprintf('[3] branch detection skipped (%s backend supplies branch labels)\n', seg_backend);
     else
@@ -300,7 +329,13 @@ function out = run_planner_headless(dicom_dir, opts)
     %     contrast dropout; slice-by-slice tracking with re-acquire and
     %     a wider HU window reaches the inguinal ligament and beyond.
     t0 = tic;
-    if ~isempty(label_branch) && ~is_eia_target && ~external_seg
+    % Learned/external masks are trusted as-is, EXCEPT that a model trained
+    % on a scheme without femorals (AortaSeg24 has no CFA class) yields no
+    % CFA labels 4/5 — the seed finder would then fail. Extend from the
+    % iliac termini in that case only.
+    ext_needs_cfa = external_seg && ~any(ismember(label_branch(:), [4 5])) ...
+        && any(ismember(label_branch(:), [2 3]));
+    if ~isempty(label_branch) && ~is_eia_target && (~external_seg || ext_needs_cfa)
         try
             [mask, label_branch, info_cfa] = autoseg.extend_to_cfa(D, mask, label_branch, struct('verbose', false));
             % Best-effort progress log. The extension itself already
@@ -716,6 +751,19 @@ function out = run_planner_headless(dicom_dir, opts)
         if exist('label_branch', 'var'); out.label_branch = label_branch; end
         out.D = D;
         if exist('audit', 'var'); out.audit = audit; end
+        % Carry the SEGMENTATION-stage QC out too, so a GUI plan built on
+        % this mask can still show "do not trust" after an extension
+        % failure or a suspect orientation (previously it had no QC and
+        % defaulted to usable). Centerline checks aren't run yet.
+        out.qc = struct('segmentation_incomplete', seg_incomplete, ...
+                        'orientation_suspect', orientation_suspect, ...
+                        'centerline_implausible', false, ...
+                        'centerline_implausible_R', false, ...
+                        'centerline_implausible_L', false, ...
+                        'min_plausible_arc_mm', NaN, ...
+                        'distal_target', opts.distal_target, ...
+                        'warnings', {seg_qc_warnings});
+        [out.qc.usable, out.qc.summary] = autoseg.qc_summary(out.qc);
         return;
     end
 
@@ -815,8 +863,14 @@ function out = run_planner_headless(dicom_dir, opts)
 
     % Persist the freshly computed centerline so the next run on this exact
     % mask + seeds is instant.
+    % Don't cache a FALLBACK: if 'auto' wanted VMTK but it failed this time
+    % (timeout, transient mesh error), caching the skeleton result under the
+    % 'auto' key would pin the lower-quality centerline for every later run
+    % of this scan.
+    fell_back = strcmp(opts.centerline_backend, 'auto') && ...
+        exist('vinfo', 'var') && vinfo.available && strcmp(centerline_used, 'matlab');
     if opts.centerline_cache && ~cl_cache_hit && ~isempty(cl_cache_file) ...
-            && ~isempty(Pv_mm_right)
+            && ~isempty(Pv_mm_right) && ~fell_back
         try
             save(cl_cache_file, 'Pv_mm_right', 'R_mm_right', ...
                 'Pv_mm_left', 'R_mm_left', 'centerline_used');
@@ -867,8 +921,12 @@ function out = run_planner_headless(dicom_dir, opts)
     % so a downstream caller can trust the good side rather than discarding
     % the whole plan. The overall flag stays = ANY side implausible (legacy
     % contract), but per-side detail is carried on out.qc.
+    % Compare like with like: VMTK trims the LEFT polyline at the
+    % bifurcation, so arc_L is iliac-only while the floor is a full
+    % aorta→groin span. Add the shared aortic trunk back before judging it.
+    span_L = left_full_span(Pv_mm_right, R_mm_right, Pv_mm_left, arc_L);
     implausible_R = arc_R < min_plausible_arc_mm;
-    implausible_L = arc_L < min_plausible_arc_mm;
+    implausible_L = span_L < min_plausible_arc_mm;
     centerline_implausible = implausible_R || implausible_L;
     if centerline_implausible
         if is_eia_target && (implausible_R ~= implausible_L)
@@ -1015,6 +1073,30 @@ function out = run_planner_headless(dicom_dir, opts)
     close(fig);
     fprintf('[6] QC figure saved to %s\n', fig_path);
     fprintf('=== done ===\n');
+end
+
+function span = left_full_span(Pv_R, R_R, Pv_L, arc_L)
+%LEFT_FULL_SPAN  Left-side proximal-aorta→terminus span. When the left
+%   polyline stops at the bifurcation (VMTK convention), add the right
+%   polyline's arc from its proximal (wider) end to the node nearest the
+%   left's junction end. Uses only the two polylines (one shared frame).
+    span = arc_L;
+    if isempty(Pv_R) || isempty(Pv_L) || size(Pv_R, 1) < 3 || size(Pv_L, 1) < 2
+        return;
+    end
+    arcR = [0; cumsum(vecnorm(diff(Pv_R, 1, 1), 2, 2))];
+    ends = Pv_L([1 end], :);
+    dmin = zeros(2, 1); kidx = zeros(2, 1);
+    for e = 1:2
+        [dmin(e), kidx(e)] = min(vecnorm(Pv_R - ends(e, :), 2, 2));
+    end
+    [~, j] = min(dmin);                  % left end that joins the right
+    kR = kidx(j);
+    if R_R(1) >= R_R(end); iP = 1; else; iP = numel(arcR); end   % proximal = wider
+    trunk = abs(arcR(iP) - arcR(kR));
+    if trunk > 15                        % left is trimmed at the bifurcation
+        span = arc_L + trunk;
+    end
 end
 
 function v = field_or_nan(s, f)

@@ -62,10 +62,14 @@ function [mask, info] = ts_run(D, opts)
 
     sz = size(D.vol);
 
-    % --- Cache check (hash by volume size + spacing + fast flag) ------
+    % --- Cache check (volume CONTENT + spacing + fast flag) ------------
+    % The key must include the image content: size + spacing alone let two
+    % different scans on the same protocol (e.g. a patient's pre-op and
+    % follow-up) share one cached segmentation.
     key = struct('sz', sz, 'pixel_mm', D.pixel_mm, ...
                  'slice_spacing_mm', D.slice_spacing_mm, ...
-                 'fast', opts.fast);
+                 'fast', opts.fast, ...
+                 'fp', autoseg.volume_fingerprint(D));
     h = simple_hash(jsonencode(key));
     cache_seg = fullfile(opts.cache_dir, [h, '_seg.nii.gz']);
     if exist(cache_seg, 'file')

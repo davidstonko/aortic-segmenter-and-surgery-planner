@@ -30,9 +30,12 @@ function [mask, label, info] = detect_branches_cached(D, seg, opts)
     if ~isfield(opts, 'verbose'); opts.verbose = true; end
     if ~exist(opts.cache_dir, 'dir'); mkdir(opts.cache_dir); end
 
+    % Key on the CT content too: extend_and_detect_branches reads D.vol
+    % (HU), so an identical label count on a different scan must not hit.
     key = struct('size', size(seg), 'sum', sum(seg(:)>0), ...
                  'pixel_mm', D.pixel_mm, ...
-                 'slice_spacing_mm', D.slice_spacing_mm);
+                 'slice_spacing_mm', D.slice_spacing_mm, ...
+                 'fp', autoseg.volume_fingerprint(D));
     h = simple_hash(jsonencode(key));
     cache_path = fullfile(opts.cache_dir, [h '_branches.mat']);
 
