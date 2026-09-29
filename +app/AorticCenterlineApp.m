@@ -39,6 +39,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             app.Mask = false(sz);
             app.PendingMask = false(sz);
             app.MaskLabel = zeros(sz, 'uint8');
+            app.SegQC = [];
             app.IdxAxial    = round(sz(3)/2);
             app.IdxCoronal  = round(sz(1)/2);
             app.IdxSagittal = round(sz(2)/2);
@@ -412,6 +413,10 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
         SegBackend        char    = 'totalsegmentator'
         SegLabelNifti     char    = ''   % external backend: label NIfTI path
         SegClassMap       char    = ''   % external: class map ('' = already pipeline labels)
+        % Segmentation-stage QC from the engine (run_planner_headless out.qc)
+        % for the current mask; passed into the IFU plan so an unreliable
+        % result is never shown with a device recommendation. [] = none.
+        SegQC                     = []
         % Max-centerline-distance guardrail. When ON, the centerline
         % is rejected if the straight-line seed-to-seed distance
         % multiplied by `MaxCenterlinePathFactor` is exceeded by the
@@ -6924,6 +6929,8 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 app.SeedProximal = out.seeds.proximal;
                 app.SeedRightCFA = out.seeds.right_cfa;
                 app.SeedLeftCFA  = out.seeds.left_cfa;
+                app.SegQC = [];
+                if isfield(out, 'qc') && isstruct(out.qc); app.SegQC = out.qc; end
                 close(d);
                 if ~isempty(stat) && isvalid(stat)
                     stat.Text = sprintf('Segmented: %d voxels (full-pipeline mask + seeds).', nnz(app.Mask));
@@ -6993,6 +7000,8 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                 app.SeedProximal = out.seeds.proximal;
                 app.SeedRightCFA = out.seeds.right_cfa;
                 app.SeedLeftCFA  = out.seeds.left_cfa;
+                app.SegQC = [];
+                if isfield(out, 'qc') && isstruct(out.qc); app.SegQC = out.qc; end
 
                 % centerlines: headless returns mm; convert to voxel overlay
                 Pv_R = mm_to_vox(out.Pv_mm_right, app.D);
@@ -9091,6 +9100,7 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
             pushUndo(app);
             app.Mask = false(size(app.D.vol));
             app.MaskLabel = zeros(size(app.D.vol), 'uint8');
+            app.SegQC = [];
             app.NextSegLabel = 1;
             app.SeedSeg = [];
             app.SeedSegList = {};
@@ -10116,15 +10126,25 @@ classdef AorticCenterlineApp < matlab.apps.AppBase
                     'Pv_mm_left',  PvL_mm, 'R_mm_left',  RL_mm, ...
                     'arc_R_mm', sum(vecnorm(diff(PvR_mm,1,1),2,2)), ...
                     'arc_L_mm', sum(vecnorm(diff(PvL_mm,1,1),2,2)));
+                % Give the plan the same inputs as the headless path: branch
+                % labels + volume geometry (so the neck is anchored on the
+                % lowest renal, not the radius heuristic) and the engine's
+                % segmentation QC (so an unreliable result can't come back
+                % with a device recommendation).
+                if ~isempty(app.MaskLabel) && isequal(size(app.MaskLabel), size(app.Mask))
+                    pr.label_branch = app.MaskLabel;
+                end
+                pr.D = rmfield_if(app.D, 'vol');
+                if ~isempty(app.SegQC); pr.qc = app.SegQC; end
                 plan = evar_plan.generate_plan(pr, struct('verbose', false, 'write_file', ''));
                 % Format a verdict table
                 lines = { plan.rationale, '', 'Device library used:' };
                 for k = 1:numel(plan.ranked_devices)
                     d = plan.ranked_devices(k); ec = d.eligibility;
                     if ec.eligible
-                        verdict = sprintf('ELIGIBLE  (margin %+.1f)', ec.min_margin);
+                        verdict = sprintf('ELIGIBLE  (margin %+.1f mm)', ec.min_margin);
                     else
-                        verdict = sprintf('OFF-IFU  (binding %s, margin %+.1f)', ec.binding, ec.min_margin);
+                        verdict = sprintf('OFF-IFU  (binding %s, margin %+.1f mm)', ec.binding, ec.min_margin);
                     end
                     lines{end+1} = sprintf('  %-14s %-15s %s', d.name, d.manufacturer, verdict); %#ok<AGROW>
                 end
@@ -11041,6 +11061,11 @@ function s = vmtk_label(ok)
     if ok; s = '';
     else;  s = ' (unavailable)';
     end
+end
+
+function s = rmfield_if(s, f)
+%RMFIELD_IF  rmfield that tolerates a missing field.
+    if isstruct(s) && isfield(s, f); s = rmfield(s, f); end
 end
 
 function s = boolEnable(b)

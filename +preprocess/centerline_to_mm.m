@@ -11,10 +11,10 @@ function [Pv_mm, R_mm] = centerline_to_mm(polyline_voxels, R_voxels, D)
 %                                   y_mm = y*pixel_mm(1),
 %                                   z_mm = z_slice_z_mm(z)])
 %
-%   For radius, we use the geometric mean of the in-plane spacings to
-%   give an isotropic radius scalar (the inscribed sphere is anisotropic
-%   under non-cubic voxels; for our 0.77 × 0.77 × 0.5 mm voxels this is
-%   a small adjustment).
+%   For radius, we scale by the mean IN-PLANE pixel spacing: the aorta and
+%   iliacs run roughly along z, so their cross-section — and a voxel-unit
+%   lumen radius — lies in the axial plane. (Slice thickness is excluded;
+%   including it inflated diameters on thick-slice scans.)
 
 %   Project: AINN/EVAR (Phase 3)
 %   Author : David P. Stonko
@@ -42,7 +42,11 @@ function [Pv_mm, R_mm] = centerline_to_mm(polyline_voxels, R_voxels, D)
         Pv_mm(:, 3) = (z_idx - 1) * D.slice_spacing_mm;
     end
 
-    % Geometric-mean voxel size as an isotropic radius scaling
-    voxel_geom_mean = (D.pixel_mm(1) * D.pixel_mm(2) * D.slice_spacing_mm)^(1/3);
-    R_mm = R_voxels * voxel_geom_mean;
+    % Radius in-plane: a vessel running along z has its cross-section in
+    % the axial plane, so a voxel-unit radius (bwdist / inscribed sphere)
+    % is an IN-PLANE distance. The old geometric-mean scaling
+    % (px*py*slice)^(1/3) inflated every diameter by (slice/px)^(1/3) —
+    % ~+60% on 3 mm slices — and broke the GUI's VMTK round-trip, which
+    % converts mm -> voxels with mean(pixel_mm(1:2)).
+    R_mm = R_voxels * mean(abs(D.pixel_mm(1:2)));
 end
