@@ -2,6 +2,76 @@
 
 Reverse-chronological log of session-level changes to the EVAR Planner.
 
+## 2026-09-29 — Full audit: clinical-correctness fixes, IFU re-verification, cache integrity
+
+A three-track audit (pipeline bugs, clinical measurement + IFU labeling,
+docs/hygiene) plus an end-to-end baseline on all 8 local CT series.
+
+**Baseline (current code, TotalSegmentator fast + VMTK), 7 unique scans:**
+2 usable plans (both arterial aorta-protocol CTAs); 2 ran but were
+correctly flagged unusable by QC; 3 failed at seeding (TotalSegmentator
+returned only one iliac artery). No case silently produced a bad plan.
+
+**Measurement fixes (`+evar_plan`)**
+- **Neck anchored on the lowest renal ostium** (new
+  `evar_plan.lowest_renal_level`) instead of a fixed 40 mm arc offset below
+  the proximal seed, which could start the neck above the celiac. Neck ends
+  at the first sustained 10% dilation over the reference neck caliber (or the
+  aneurysm threshold, whichever first); a juxtarenal aneurysm yields ~0 mm.
+  On a real case the old logic started the neck 44.8 mm above the lowest
+  renal (neck length 82 mm → 32 mm).
+- **Renal-label plausibility gates** for auto-detected labels: the ostium must
+  lie at kidney level (TotalSegmentator kidneys) and the label must reach
+  ≥20 mm laterally from the aorta. On a real case the branch detector had
+  labelled a spinal stub and a vessel below the kidney as "renals"; both are
+  now rejected with a stated reason and the plan falls back to the heuristic,
+  clearly flagged. Hand-annotated masks are not gated.
+- **Anatomic aortic bifurcation from the iliac labels.** In an aneurysm sac
+  the two VMTK centerlines diverge well above the flow divider (~35 mm on a
+  real case), which had displaced the iliac-diameter sampling point.
+- **Iliac seal length is now "not assessed"** instead of passing a
+  bifurcation-to-terminus path length (~150-250 mm) against 10-15 mm minimums.
+- β-angle neck axis capped at the neck length (a 30 mm window spilled into
+  the sac on short necks). New fields: `neck_landmark`, `lowest_renal_side`,
+  `bifurcation_source`, `iliac_*_seal_length_mm`.
+
+**IFU catalog (`+ifu/devices.m`), re-verified against manufacturer / FDA
+labeling:** Excluder neck 19–32 (was 19–29), iliac 8–25 (was 8–18.5);
+Excluder Conformable neck 16–32, ≥10 mm (was 19–29, ≥15; "C3" removed from the
+name — that is the standard Excluder's delivery system); AFX2 neck 18–32 (was
+18–29), iliac angle ≤90°; Treo neck length ≥15 (was 10), iliac inside Ø 8–20
+(was 7–25), suprarenal ≤45°; Ovation iliac 8–20 (was 8–25) and ≤45° when the
+neck is <10 mm; Zenith Flex suprarenal <45°. Sources with document numbers are
+in each entry. Eligibility now checks suprarenal angulation, the short-neck
+angle rule and labeled iliac angles; neck length is a core criterion when an
+aneurysm is present; ranking margins are mm-only (mm and degrees are not
+comparable); a caution is raised when a lumen neck Ø is within 4 mm of an
+OUTER-wall IFU maximum; no device is recommended when planner QC fails.
+
+**Cache integrity**
+- TotalSegmentator and branch caches were keyed on volume size + spacing only
+  — two scans on the same protocol could share a segmentation. Now keyed on
+  image content (`autoseg.volume_fingerprint`).
+- The whole-result cache now regenerates the plan with current code on every
+  hit (so measurement/IFU fixes are never masked by a stale plan), restores
+  the caller's volume, and writes artefacts to the requested `out_dir`.
+- A VMTK fallback to the skeleton centerline is no longer cached.
+
+**Pipeline / GUI**
+- External/learned masks: the seed finder no longer reads pipeline labels as
+  TotalSegmentator IDs (kidney/liver anchors collided with iliac/CFA labels);
+  CFA extension runs when a learned mask has no CFA labels.
+- `skip_centerline` results (the GUI step-by-step path) now carry QC; the GUI
+  IFU match passes branch labels, geometry and QC, so GUI plans match headless.
+- `preprocess.centerline_to_mm` scaled radii by (px·py·slice)^(1/3), inflating
+  GUI diameters by (slice/px)^(1/3) — ~60% on 3 mm slices. Now in-plane.
+- Left-side centerline plausibility compares like with like (VMTK trims the
+  left polyline at the bifurcation).
+
+Tests: new `test_neck_landmarks` (7), `test_ifu_labeling` (7); fixture fixes in
+`test_evar_plan` (a test that passed only via the vacuous iliac-length check)
+and `test_ifu`.
+
 ## 2026-07-22 — Annotation QC gate + Slicer color table (annotation enablement)
 
 Tooling to make the incoming annotation cohort safe and consistent as CTAs
@@ -1264,10 +1334,11 @@ Key properties:
 - Added `figureSizeChangedFcn` / `onFigureResized` for responsive
   layout when the user drags the window.
 
-### Memory
-- `memory/feedback_no_mask_bridges.md` recorded with the user's exact
-  quote and a list of the removed helpers, so future sessions don't
-  re-introduce them.
+### Design rule recorded
+- No synthetic "bridge" tubes may be painted to force mask connectivity on
+  contrast-enhanced CTA (the vessels are opacified — fix the segmentation
+  instead); the removed helpers are listed above so they are not
+  re-introduced.
 
 ## 2026-05-18 — first out-of-cohort EVAR case: JohnDoe2
 
@@ -1544,11 +1615,10 @@ Key properties:
   for the GUI "Manual CFA click" re-anchor flow surfaced when the
   SE(3) audit FAILs. New `tests/test_cfa_seed_override.m` (3 tests).
 
-### Audit + cleanup pass (`/auditcode`)
-- Built `/auditcode` skill at `.claude/skills/auditcode.md` — 8-pass
-  static repo audit covering drift, dead code, lint, TODOs, tests,
-  deps, paths, docs. Complements `/goal audit` (which covers domain
-  quality — segmentation, centerline, sizing, IFU).
+### Audit + cleanup pass
+- 8-pass static repo audit covering drift, dead code, lint, TODOs, tests,
+  deps, paths and docs (complementing the domain-quality audit of
+  segmentation, centerline, sizing and IFU).
 - Drift fixes: STATUS.md test count 68→70 + Modules-implemented
   section refreshed; `docs/datasets.md` stale takeoff-symmetry-bug
   note removed; `se3_per_centerline_check` + `se3_cross_vessel_check`
