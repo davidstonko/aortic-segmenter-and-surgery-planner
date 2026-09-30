@@ -11,6 +11,19 @@ docs/hygiene) plus an end-to-end baseline on all 8 local CT series.
 2 usable plans (both arterial aorta-protocol CTAs); 2 ran but were
 correctly flagged unusable by QC; 3 failed at seeding (TotalSegmentator
 returned only one iliac artery). No case silently produced a bad plan.
+Follow-up: rerunning a seed-failure case with TotalSegmentator's
+full-resolution model (`ts_mode='full'`) found both iliacs, but the
+aorta→iliac lumen was still disconnected (centerline 45/92 mm, QC-flagged),
+and it took ~2 h vs ~70 s for the fast model on Apple silicon (MPS). Not the
+fix — consistent with the learned-segmentation plan.
+
+**Synthetic accuracy check:** on the bundled AAA phantom (known geometry),
+the renal-anchored neck length measured 28.4 mm vs a true 29.6 mm.
+New README / project-page figure: `docs/evar_phantom_3d.png`.
+
+**Docs:** README rewritten as a public landing page (status and limitations
+up front); internal working notes moved to `docs/archive/`; SETUP,
+DEPENDENCIES, CONTRIBUTING aligned on MATLAB R2024a+; CITATION.cff 1.6.0.
 
 **Measurement fixes (`+evar_plan`)**
 - **Neck anchored on the lowest renal ostium** (new
@@ -1554,7 +1567,7 @@ Key properties:
 - **Removed 7 stale verification screenshots** from
   `results/figures/gui_audit/` and added doc references to the
   post-fix proof shots that remain.
-- **Removed hardcoded `/Users/davidstonko/...` path** from
+- **Removed a hardcoded absolute home-directory path** from
   `scripts/audit_full_workflow.m`. Now reads `JOHNDOE1_DICOM` env var
   with a fallback to `../JohnDoe1 EVAR/...` relative to the project root,
   and errors clearly if neither is set.

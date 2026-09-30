@@ -12,11 +12,12 @@ Project page: <https://localminimum.us/research/evar-planner/>
 > work. It is **not a medical device**, it has **not been clinically validated**,
 > and its output must **not be used for clinical decisions**.
 
-![Synthetic phantoms: coronal MIPs of the normal and AAA phantoms with their bifurcated centerlines](docs/phantom_preview.png)
+<p align="center"><img src="docs/evar_phantom_3d.png" width="440" alt="3D rendering of the synthetic AAA phantom with the automatically computed bifurcated centerline; markers show the neck starting at the lowest renal artery, the aneurysm start, the maximum lumen diameter and the aortic bifurcation"></p>
 
-*The two bundled synthetic phantoms (normal and AAA) with their bifurcated
-centerlines. These are procedurally generated. No patient images ship with this
-repository.*
+*Pipeline output on the bundled synthetic AAA phantom (procedurally generated —
+no patient images ship with this repository): automatic seeds, VMTK bifurcated
+centerline, and the neck measured from the lowest renal artery. On this phantom
+the measured neck length is 28.4 mm against a true 29.6 mm.*
 
 ---
 
@@ -83,12 +84,17 @@ Please read this section before using the results.
   - 3 scans **failed at automatic seeding** because TotalSegmentator missed one
     iliac artery.
 
-  No case silently produced a bad plan. Making the planner work on new scans is
-  the main open problem. A learned-segmentation phase is in progress
+  No case silently produced a bad plan. Switching TotalSegmentator to its
+  full-resolution model recovered the missing iliac on one failed case but not
+  a connected aorta-to-femoral lumen (and took ~2 h vs ~70 s on Apple silicon),
+  so it is not the fix. Making the planner work on new scans is the main open
+  problem; a learned-segmentation phase is in progress
   ([docs/LEARNED_SEGMENTATION_ROADMAP.md](docs/LEARNED_SEGMENTATION_ROADMAP.md)).
 - **All diameters are contrast-lumen diameters.** They exclude mural thrombus, so
-  they **under-call the outer-wall aneurysm diameter**. They also under-call
-  against IFU ranges, which are defined outer wall to outer wall.
+  they **under-call the outer-wall aneurysm diameter**. Where a device's IFU
+  defines diameters outer wall to outer wall (e.g. Cook Zenith Flex), the lumen
+  value also under-calls against the IFU range; the plan raises a caution when
+  a lumen neck diameter is within 4 mm of such a maximum.
 - **No reference validation yet.** The measurements have **not** been validated
   against a reference workstation. A TeraRecon benchmark is planned; the files
   `library/reference/*.ref.json` are empty templates.
