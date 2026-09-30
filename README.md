@@ -1,199 +1,327 @@
-# EVAR Planner
+# Aortic Segmenter and EVAR Planner
 
-> ⚠️ **RESEARCH USE ONLY** — this tool is for academic and methods-development
-> work. It is **not** a regulated medical device and must not be used for
-> clinical decision-making.
+**Open-source, automated planning for endovascular aneurysm repair (EVAR), starting from a raw CT angiogram and written in MATLAB.**
 
-An open-source automated **endovascular aneurysm repair (EVAR) planner**
-from a contrast-enhanced CT angiogram. The pipeline:
+[![MATLAB smoke + regression](https://github.com/davidstonko/aortic-segmenter-and-surgery-planner/actions/workflows/matlab-smoke.yml/badge.svg)](https://github.com/davidstonko/aortic-segmenter-and-surgery-planner/actions/workflows/matlab-smoke.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![MATLAB R2024a+](https://img.shields.io/badge/MATLAB-R2024a%2B-orange.svg)](SETUP.md)
 
-1. Loads raw DICOM and ingests it as a uniform volume struct.
-2. Auto-segments the aorta + iliacs via `TotalSegmentator`, then runs a
-   branch-detection pass (celiac, SMA, both renals, both CFAs) with
-   anatomic fallback scans, slice-by-slice **CFA extension** to the FOV
-   bottom, supraceliac crop at 5 cm above celiac, and a 6-block audit
-   (required vessels, visceral branches, sizes, proximal extent,
-   per-side continuity, SE(3) curvature). Branch labels are
-   disk-cached: a re-run on the same volume is **60× faster**.
-3. Auto-detects three EVAR endpoints (supraceliac aorta ≈ 5 cm above the
-   celiac, anchored on the celiac centroid not a kidney proxy; R-CFA and
-   L-CFA at the post-extension distal termini, reaching the inguinal
-   ligament).
-4. Builds a bifurcated centerline. **VMTK's Voronoi/fast-marching
-   centerline is the primary backend** (same algorithm class as the
-   reference clinical workstation TeraRecon) with a pure-MATLAB
-   skeleton-graph shortest-path implementation as a fallback when VMTK
-   is not installed. Select the backend explicitly via
-   `opts.centerline_backend ∈ {auto, vmtk, matlab}` to
-   `run_planner_headless`.
-5. Derives sizing measurements: proximal-neck Ø/length/angulation,
-   per-side iliac Ø/length, peak aneurysm radius, iliac take-off
-   (bifurcation) angle. Neck angulation is reported as **two angles** —
-   α (suprarenal-to-neck) and β (infrarenal-neck-to-sac); β is the
-   IFU-canonical value (`neck_angulation_deg`) that eligibility checks
-   against. All diameters are **lumen-only** (exclude mural thrombus).
-   Proximal-neck **length is N/A when no aneurysm onset is detected**.
-6. Ranks 7 catalogued stent grafts (Gore Excluder, Gore Excluder
-   Conformable C3, Medtronic Endurant II, Cook Zenith Flex, Endologix
-   AFX2, Endologix/Trivascular Ovation iX, Terumo Treo) against the
-   measurements using IFU criteria taken from Chaikof 2018 SVS and
-   AbuRahma 2018 JACS (NOT vendor IFUs — see disclaimer in `+ifu`).
-7. Emits a structured EVAR plan (.txt + .json) with rationale.
+Project page: <https://localminimum.us/research/evar-planner/>
 
-Three entry points:
+> **Research use only.** This software is for academic and methods-development
+> work. It is **not a medical device**, it has **not been clinically validated**,
+> and its output must **not be used for clinical decisions**.
 
-```matlab
-% GUI workflow — every step has a User-driven (default) / Automatic
-% toggle and an ⓘ info button on every section. Help menu in the
-% menubar exposes pipeline overview, glossary, and a first-launch tour.
-app.AorticCenterlineApp
+![Synthetic phantoms: coronal MIPs of the normal and AAA phantoms with their bifurcated centerlines](docs/phantom_preview.png)
 
-% Headless — zero clicks, raw DICOM → centerline + plan
-out  = run_planner_headless('/path/to/DICOM-folder');
-plan = evar_plan.generate_plan(out);
+*The two bundled synthetic phantoms (normal and AAA) with their bifurcated
+centerlines. These are procedurally generated. No patient images ship with this
+repository.*
 
-% Batch — walks a directory tree of DICOM cases, runs the headless
-% pipeline on each, writes a summary CSV. Convenient for cohort runs.
-results = run_batch('/path/to/cohort-root');
+---
+
+## What it does
+
+Given an arterial-phase CT angiogram, the pipeline runs these steps with no clicks:
+
+- **DICOM ingest.** Reads a CT series into a uniform volume struct.
+- **Segmentation.** [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
+  segments the aorta, iliac arteries, kidneys and liver. The segmentation
+  backend can be swapped (see [Segmentation backends](#segmentation-backends)).
+- **Branch detection and repair.** Finds the renal arteries, celiac trunk and
+  SMA. It extends the iliacs into the common femoral arteries (CFAs) and repairs
+  gaps in vessel connectivity using HU values. By default the CFA extension
+  stops about 3 cm below the inguinal ligament, at mid-CFA
+  (`opts.cap_cfa_at_inguinal`, `opts.cfa_distal_margin_mm = 30`).
+- **Anatomic auto-seeds.** Places the proximal seed in the supraceliac aorta and
+  the distal seeds in the right and left CFAs.
+- **Bifurcated centerline.** VMTK's Voronoi / fast-marching centerline is the
+  preferred method. A pure-MATLAB skeleton-graph shortest path is used when VMTK
+  is not installed (`opts.centerline_backend` = `auto` | `vmtk` | `matlab`).
+- **EVAR measurements:**
+  - proximal neck diameter, length and angulation (α and β; β is the value
+    checked against the IFU)
+  - neck length measured from the **lowest renal artery ostium**, checked for
+    plausibility against the kidneys
+  - the **aortic bifurcation**, located from the iliac labels
+  - iliac diameters and take-off angle, and the peak aneurysm diameter
+
+  Iliac seal length is reported as **not assessed**.
+- **IFU device matching.** Checks the measurements against the instructions-for-use
+  (IFU) criteria of 7 stent grafts: Gore Excluder, Gore Excluder Conformable,
+  Medtronic Endurant II, Cook Zenith Flex, Endologix AFX2, Endologix Ovation iX
+  and Terumo Treo. The device criteria were checked against manufacturer and FDA
+  labeling on 2026-09-29; the document numbers are cited in `+ifu/devices.m`.
+  **No device is recommended when quality control (QC) fails.**
+- **Structured plan.** Writes the plan as `.txt` and `.json`, with the reasoning
+  behind it and a QC verdict.
+
+Other components:
+
+- **GUI.** `AorticCenterlineApp` walks through 6 steps: Load CT → Segment →
+  Endpoints → Centerline → Analyze → Export. Each step can run automatically or
+  be driven by the user.
+- **Headless and batch runners.** `run_planner_headless` runs one case and
+  `scripts/run_batch.m` runs a folder of cases.
+- **De-identification intake** (`+intake`). Copies a study, scrubs it, verifies
+  the scrub and records it in a manifest. A study that fails verification is
+  quarantined.
+- **Annotation SOP and learned-segmentation roadmap** (see
+  [docs/](docs/)). These support the next phase, which trains a segmentation
+  model.
+
+## Status and known limitations
+
+Please read this section before using the results.
+
+- **Scope.** The planner works end-to-end on **arterial-phase, aorta-protocol CTA**.
+  Non-arterial scans, such as routine chest/abdomen/pelvis CT, are out of scope.
+- **Current results on the author's local test set** (7 unique scans, current code):
+  - 2 scans produced a usable plan.
+  - 2 scans ran to completion and were **correctly flagged unusable** by the
+    built-in QC.
+  - 3 scans **failed at automatic seeding** because TotalSegmentator missed one
+    iliac artery.
+
+  No case silently produced a bad plan. Making the planner work on new scans is
+  the main open problem. A learned-segmentation phase is in progress
+  ([docs/LEARNED_SEGMENTATION_ROADMAP.md](docs/LEARNED_SEGMENTATION_ROADMAP.md)).
+- **All diameters are contrast-lumen diameters.** They exclude mural thrombus, so
+  they **under-call the outer-wall aneurysm diameter**. They also under-call
+  against IFU ranges, which are defined outer wall to outer wall.
+- **No reference validation yet.** The measurements have **not** been validated
+  against a reference workstation. A TeraRecon benchmark is planned; the files
+  `library/reference/*.ref.json` are empty templates.
+- **Research use only.** This is not a medical device and must not be used for
+  clinical decisions.
+
+## Requirements
+
+- **MATLAB R2024a or newer.** CI tests R2024a and R2024b, and development is on
+  R2025b.
+- **Image Processing Toolbox** (required).
+- **Optional external tools:**
+
+  | Tool | Used for | Environment |
+  |------|----------|-------------|
+  | [TotalSegmentator](https://github.com/wasserth/TotalSegmentator) | automatic segmentation (default backend) | `environment.yml` (`evar-tools`) |
+  | [VMTK](http://www.vmtk.org) | Voronoi / fast-marching centerlines (preferred) | `environment-vmtk.yml` (`vmtk`) |
+  | [nnU-Net v2](https://github.com/MIC-DKFZ/nnUNet) | the `learned` segmentation backend (needs trained weights) | see [DEPENDENCIES.md](DEPENDENCIES.md) |
+
+  Without TotalSegmentator, automatic planning from raw DICOM is not available.
+  You can still use the GUI's manual segmentation tools or supply your own mask
+  with the `external` backend. Without VMTK, the MATLAB skeleton centerline is
+  used instead.
+
+## Installation
+
+```bash
+git clone https://github.com/davidstonko/aortic-segmenter-and-surgery-planner.git
+cd aortic-segmenter-and-surgery-planner
+
+# Optional external tools (see SETUP.md for Apple Silicon notes)
+conda env create -f environment.yml        # TotalSegmentator  -> env "evar-tools"
+conda env create -f environment-vmtk.yml   # VMTK              -> env "vmtk"
 ```
 
-Heavy lifting (segmentation, centerline) is delegated to external
-open-source tools (`TotalSegmentator` for segmentation; `VMTK` for the
-Voronoi/fast-marching centerline). **Pure-MATLAB fallback paths
-always work** when those tools are not installed — the planner
-auto-detects what's available.
-
-## Six-step workflow
-
-1. **Load CT** — DICOM folder, single multi-frame DICOM, NIfTI, or cached `.mat`.
-2. **Segment aorta** — One-click *auto-segment* with TotalSegmentator (when the
-   CLI is on `PATH`), then manual click-to-add / brush / scalpel refinement
-   with HU-range gating and shift-chain preview.
-3. **Pick endpoints** — Three seeds: proximal aorta (suprarenal, green), right
-   CFA (red), left CFA (blue). The arming sequence auto-advances.
-4. **Compute centerline** — Toggle between **VMTK** (bifurcating tree, exact
-   shared bifurcation node) and the built-in **Skeleton** algorithm
-   (`bwskel` + Dijkstra, run twice and merged). Polylines are oriented
-   distal → proximal so node 1 is the CFA and the last node is the
-   suprarenal aorta.
-5. **Analyze (EVAR)** — Click on the centerline to drop landmarks (lowest
-   renal, aortic bifurcation, iliac termini, internal iliacs). Measurements
-   update live; a separate window shows the radius profile with landmarks
-   overlaid.
-6. **Export** — Save as `centerline.mat` or push to the local case library.
-
-## Quick start
+Then in MATLAB, from the repository root:
 
 ```matlab
-cd '/path/to/phase-3-real-EVAR'
-
-% --- Headless (no clicks) ----------------------------------------
-out  = run_planner_headless('/path/to/DICOM-folder');
-plan = evar_plan.generate_plan(out);     % writes evar_plan.{txt,json}
-
-% --- GUI workflow ------------------------------------------------
-app.AorticCenterlineApp                  % auto-seeds Step 3 from
-                                          % cached TS multilabel when
-                                          % available; otherwise three
-                                          % clicks
-
-% --- Run the regression suite -----------------------------------
-addpath('scripts'); run_tests            % non-GUI 110 pass / 1
-                                          % expected-skip of 111; GUI
-                                          % tests need a display. See
-                                          % STATUS.md for the live count.
+setup.check_dependencies   % prints which tools and toolboxes were found
 ```
+
+Full step-by-step instructions are in [SETUP.md](SETUP.md), and external-tool
+details are in [DEPENDENCIES.md](DEPENDENCIES.md).
+
+## Quick start: bundled synthetic phantom
+
+This example needs only MATLAB and the Image Processing Toolbox; no external
+tools or patient data are required. It auto-seeds the AAA phantom, builds the
+bifurcated skeleton centerline, and generates an EVAR plan:
+
+```matlab
+addpath(pwd);                                    % from the repo root
+P = load(fullfile('library', 'PHANTOM_aaa_male.mat'));
+D = struct('pixel_mm', P.pixel_mm, 'slice_spacing_mm', P.slice_spacing_mm, ...
+           'is_volume', P.is_volume);
+
+seeds = preprocess.auto_seeds_from_mask(P.mask, D);
+S = preprocess.build_skeleton_graph(P.mask, struct('min_branch_length', 10, ...
+        'min_radius_vox', 0, 'radius_weight_pow', 2));
+[PvR, RR] = preprocess.centerline_seeds(S, [seeds.proximal; seeds.right_cfa]);
+[PvL, RL] = preprocess.centerline_seeds(S, [seeds.proximal; seeds.left_cfa]);
+
+[r.Pv_mm_right, r.R_mm_right] = preprocess.centerline_to_mm(PvR, RR, D);
+[r.Pv_mm_left,  r.R_mm_left ] = preprocess.centerline_to_mm(PvL, RL, D);
+r.seeds = seeds;
+
+plan = evar_plan.generate_plan(r);   % prints measurements + IFU ranking
+```
+
+To try the GUI without data, run `run_app`, then choose Step 1 →
+**Open phantom from library…** and pick a `_raw` phantom.
+
+| File in `library/` | Contents |
+|--------------------|----------|
+| `PHANTOM_normal_male.mat`, `PHANTOM_aaa_male.mat` | answer key: mask, paired centerlines, seeds, landmarks |
+| `PHANTOM_normal_male_raw.mat`, `PHANTOM_aaa_male_raw.mat` | synthetic CT only, for working a case from scratch |
+
+`scripts/regenerate_phantoms.m` rebuilds all four files.
+
+## Usage
+
+### Headless (one case, zero clicks)
+
+```matlab
+out  = run_planner_headless('/path/to/DICOM-series');
+plan = out.plan;          % measurements, ranked devices, QC verdict
+out.qc.usable             % false => do not trust the numbers
+```
+
+Commonly used options (fields of a struct passed as the second argument):
+
+| Option | Values | Meaning |
+|--------|--------|---------|
+| `centerline_backend` | `auto` (default), `vmtk`, `matlab` | which centerline method to use |
+| `seg_backend` | `totalsegmentator` (default), `learned`, `external`, `auto` | which segmentation to use |
+| `ts_mode` | `fast` (default), `full` | TotalSegmentator 3 mm model, or the 1.5 mm model |
+| `out_dir` | path | where outputs are written |
+
+### GUI
+
+```matlab
+run_app          % or: app.AorticCenterlineApp
+```
+
+### Batch (a folder of cases)
+
+```matlab
+addpath('scripts');
+results = run_batch('/path/to/cohort-root');   % one sub-folder per case
+```
+
+This writes one summary CSV row per case, including status, audit and QC
+results, key measurements and eligible devices.
+
+### Segmentation backends
+
+`opts.seg_backend` controls where the segmentation comes from:
+
+- **`totalsegmentator`** (default). Uses TotalSegmentator plus the
+  branch-detection, CFA-extension and connectivity-repair steps above.
+- **`learned`**. Uses an nnU-Net model (`+autoseg/+aortaseg24/`). No public
+  weights exist yet, so this backend stops with a clear error until
+  `AORTASEG24_MODEL_DIR` points at a trained checkpoint.
+- **`external`**. Plans from **any** label NIfTI on the CT grid, such as a
+  hand-annotated mask or another model's output:
+
+  ```matlab
+  out = run_planner_headless('/path/to/DICOM-series', struct( ...
+      'seg_backend',     'external', ...
+      'seg_label_nifti', '/path/to/labels.nii.gz', ...
+      'seg_class_map',   'data/setA_class_map.json'));  % '' if already in pipeline labels
+  ```
+
+## Outputs
+
+By default, headless runs write to `results/logs/headless_<timestamp>/`. This
+folder is git-ignored because it can contain DICOM header data. Files written:
+
+- `planner_result.mat`: seeds, mask, centerlines, radius profiles, QC and timing
+- `plan.txt` and `plan.json`: measurements, ranked devices, recommendation or
+  "no device", QC verdict and disclaimer
+- `planner_qc.png`: a QC figure (MIPs with the centerline overlaid)
+
+GUI Step 6 exports `centerline.mat`, the plan, and a lumen surface mesh (STL,
+written by `evar_plan.export_mesh`).
+
+## Validation and datasets
+
+- [docs/datasets.md](docs/datasets.md) lists the public reference cohorts and
+  how they are used. For example, the AAA-100 cohort (Zenodo 10932957) was used
+  to calibrate the SE(3) centerline-plausibility thresholds.
+- [docs/BENCHMARK_OPERATOR_STEPS.md](docs/BENCHMARK_OPERATOR_STEPS.md) and
+  [docs/TERARECON_ANNOTATION_GUIDE.md](docs/TERARECON_ANNOTATION_GUIDE.md)
+  describe the planned workstation benchmark (`scripts/run_benchmark.m`).
+- [docs/SEGMENTATION_ANNOTATION_SOP.md](docs/SEGMENTATION_ANNOTATION_SOP.md)
+  is the annotation protocol for the learned-segmentation training set.
+
+## Roadmap
+
+The next phase replaces the rule-based segmentation with a learned model trained
+on de-identified, hand-annotated CTAs, so that the planner works on scans beyond
+the development cases. See
+[docs/LEARNED_SEGMENTATION_ROADMAP.md](docs/LEARNED_SEGMENTATION_ROADMAP.md).
+A thoracic (TEVAR) extension is scoped in
+[docs/TEVAR_REVIEW.md](docs/TEVAR_REVIEW.md).
 
 ## Repository layout
 
 ```
-phase-3-real-EVAR/
-├── +app/                    The MATLAB GUI (AorticCenterlineApp.m)
-├── +autoseg/                TotalSegmentator wrapper (detect + run + branch extension)
-│   └── +aortaseg24/         AortaSeg24 nnU-Net backend scaffold (Phase B, optional)
-├── +evar_plan/              measure_from_centerline + generate_plan
-│                            (composes centerline + +ifu into a plan)
-├── +ifu/                    Stent-graft IFU library + eligibility checker +
-│                            device ranking (7 devices; Chaikof 2018 + AbuRahma 2018)
-├── +io/                     NIfTI + VTP read/write helpers
-├── +library/                Local case archive (save/load/index/list)
-├── +phantom/                Synthetic CT phantoms (normal + AAA male)
-├── +preprocess/             DICOM load + auto_seeds_anatomic +
-│                            track_aorta_2click + skeleton-graph centerline
-├── +setup/                  Dependency check + install help
-├── +vmtk_centerline/        VMTK CLI wrapper (detect + compute + vtp_to_csv.py)
-├── library/                 Case archive (4 PHANTOM_*.mat files ship
-│                            with the repo; real cases are git-ignored)
-├── scripts/                 run_tests.m, audit_*, render_pipeline_demo, …
-├── tests/                   unit + regression tests (test_ifu, test_pipeline_phantom)
-├── run_planner_headless.m   end-to-end DICOM → centerline + plan, zero clicks
-├── README.md                (this file)
-├── STATUS.md                Phase 3 progress / data inventory
-├── HANDOFF.md               Latest-session change summary
-├── DEPENDENCIES.md          External-tool requirements
-├── SETUP.md                 Step-by-step install
-├── LICENSE                  MIT
-├── CITATION.cff             How to cite
-├── environment.yml          conda env for TotalSegmentator (evar-tools)
-├── environment-vmtk.yml     conda env for VMTK (osx-64 / Rosetta on Apple Silicon)
-└── .github/workflows/       CI: MATLAB-only smoke test
++app/               AorticCenterlineApp: the 6-step GUI
++autoseg/           segmentation: TotalSegmentator wrapper, backend selector, branch
+                    detection, CFA extension, connectivity repair, audit, QC
+  +aortaseg24/      learned (nnU-Net) segmentation backend
++evar_plan/         measurements, plan generation, reference comparison, mesh export
++ifu/               stent-graft IFU catalog, eligibility checks, device ranking
++intake/            DICOM de-identification intake, manifest, annotation checks
++io/                NIfTI and VTP read/write helpers
++library/           local case archive; AAA-100 and AortaSeg24 dataset loaders
++phantom/           synthetic CT phantom builders and loader
++preprocess/        DICOM load, auto-seeds, skeleton centerline, reformatting
++reference/         schema, loader and template for reference-measurement JSONs
++setup/             dependency check and install help
++ui_helpers/        GUI help text and widgets
++vmtk_centerline/   VMTK command-line wrapper
+data/               non-PHI label maps (class maps, Slicer color table)
+docs/               datasets, annotation SOP, roadmap, benchmark guides
+  archive/          historical development notes (kept for provenance)
+library/            synthetic phantoms and reference templates (patient cases are git-ignored)
+scripts/            test runner, batch and benchmark runners, render/diagnostic tools
+tests/              matlab.unittest regression suite
+run_planner_headless.m   end-to-end DICOM -> centerline -> plan
+run_app.m                GUI launcher
 ```
 
-## Phantom library
+## Testing
 
-The repo ships **four** phantom `.mat` files in `library/`:
+```matlab
+addpath('scripts');
+rc = run_tests();   % runs everything under tests/; rc == 0 means all passed
+```
 
-| File                                | Role          | Contents                                        |
-|-------------------------------------|---------------|-------------------------------------------------|
-| `PHANTOM_normal_male.mat`           | Answer key    | mask + paired centerlines + seeds + landmarks   |
-| `PHANTOM_normal_male_raw.mat`       | Practice case | synthetic CT only (no labels)                   |
-| `PHANTOM_aaa_male.mat`              | Answer key    | mask + paired centerlines + seeds + landmarks   |
-| `PHANTOM_aaa_male_raw.mat`          | Practice case | synthetic CT only (no labels)                   |
+Tests that depend on external tools or private case data are skipped
+automatically when those are missing. GUI tests need a display. CI
+(`.github/workflows/matlab-smoke.yml`) runs a smoke test and the regression suite
+on MATLAB R2024a and R2024b for every push.
 
-The intended workflow:
+## Contributing and data privacy
 
-1. Open a `_raw.mat` file from Step 1 → "Open phantom" and work the
-   case from scratch (segment / seed / centerline / analyze / export).
-2. To compare against the ground-truth answer, load the corresponding
-   labeled file directly (`load library/PHANTOM_aaa_male.mat`) — its
-   `Pv_mm_right`, `Pv_mm_left`, `bifurc_node_right`, and `landmarks`
-   fields are the canonical answer.
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+**No protected health information (PHI) is ever committed.** Patient DICOM files,
+cached volumes, results and renders from real scans are git-ignored. Every
+`.mat` file except the synthetic phantoms is blocked by `.gitignore`. Real
+studies enter the project only through the `+intake` de-identification gate,
+under pseudonymous codenames.
 
-To rebuild the four files from scratch (e.g. after the phantom
-builders change), run `scripts/regenerate_phantoms.m`.
+## Citation
 
-## External reference datasets
+If you use this software, please cite it using [CITATION.cff](CITATION.cff)
+(GitHub's "Cite this repository" button reads this file). Please also cite the
+tools it builds on:
 
-The planner supports the [AAA-100](https://zenodo.org/records/10932957)
-public cohort (Rygiel, Alblas, Brune, Smorenburg, Yeung, Wolterink,
-2024) as a geometry / centerline benchmark and SE(3)-threshold
-calibration source — 100 EVAR-treated infrarenal AAA cases with
-watertight lumen meshes + 5 centerlines per case (aorta, L/R iliac,
-L/R renal). Note: source CTAs are not released, so this cohort
-validates centerline + measurement code but not segmentation.
+- **TotalSegmentator:** Wasserthal J, et al. *Radiology: Artificial Intelligence*
+  2023;5(5):e230024.
+- **VMTK:** Antiga L, et al. *Medical & Biological Engineering & Computing*
+  2008;46(11):1097–1112.
 
-See `docs/datasets.md` for the full catalog, integration plan, and
-download instructions. Integration components live in
-`+library/+aaa100/` and require Python with `vtk` + `scipy`.
+## License and acknowledgements
 
-License of the AAA-100 dataset is CC BY-NC 4.0 (non-commercial only).
+[MIT](LICENSE) © 2026 David P. Stonko.
 
-## Citing
-
-If you use this tool in academic work, please cite the repository and the two
-external tools we depend on:
-
-- **TotalSegmentator:** Wasserthal J et al. *Radiology AI* 2023;5(5):e230024.
-- **VMTK:** Antiga L et al. *Med Biol Eng Comput* 2008;46(11):1097–112.
-
-See `CITATION.cff` for a machine-readable citation entry.
-
-## License
-
-[MIT](LICENSE) — Copyright (c) 2026 David P. Stonko.
-
-The MIT license covers **this repository's source code only**. It does
-**not** cover the external CC-BY-NC reference datasets (AAA-100 /
-AortaSeg24), which are non-commercial and are **never redistributed
-here** — install them yourself from their respective sources under
-their own licenses.
+The MIT license covers **this repository's source code only**. This project
+builds on [TotalSegmentator](https://github.com/wasserth/TotalSegmentator) and
+[VMTK](http://www.vmtk.org), which have their own licenses. The third-party
+reference datasets (AAA-100, AortaSeg24) are licensed **CC BY-NC**
+(non-commercial). They are **not redistributed here**; download them from their
+original sources under their own terms (see [docs/datasets.md](docs/datasets.md)).
