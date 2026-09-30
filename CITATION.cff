@@ -4,28 +4,34 @@ message: "If you use this software, please cite it using these metadata. Researc
 type: software
 authors:
   - family-names: Stonko
-    given-names: David
-    name-particle: P.
+    given-names: "David P."
     orcid: "https://orcid.org/0000-0002-2804-3857"
+repository-code: "https://github.com/davidstonko/aortic-segmenter-and-surgery-planner"
+url: "https://localminimum.us/research/"
 abstract: >-
   EVAR Planner is an open-source automated endovascular aneurysm-repair
-  (EVAR) planner from a raw contrast-enhanced CT angiogram. The headless
-  pipeline ingests DICOM, segments the aorta and iliacs via
-  TotalSegmentator, auto-detects three EVAR endpoints (supraceliac aorta
-  ~5 cm above the celiac, plus both common femoral arteries) without
-  user clicks, builds a bifurcated centerline, derives sizing
-  measurements (proximal neck Ø/length/angulation, iliac landing
-  diameters, peak aneurysm Ø), and ranks seven catalogued stent grafts
-  (Gore Excluder, Gore Excluder Conformable, Medtronic Endurant II,
-  Cook Zenith Flex, Endologix AFX2, Endologix/Trivascular Ovation iX,
-  Terumo Treo) against published IFU criteria. A MATLAB GUI variant
-  exposes the same pipeline with operator review at each step, and the
-  segmentation passes a 12-rule SE(3) anatomic-plausibility audit
-  calibrated against the AAA-100 reference cohort (Zenodo 10932957).
-  Centerlines are computed via VMTK's Voronoi/fast-marching algorithm
-  (matching the reference clinical workstation TeraRecon) with a pure-
-  MATLAB skeleton-graph shortest-path implementation as a fallback
-  when VMTK is not installed.
+  (EVAR) planner that starts from a raw arterial-phase CT angiogram. The
+  headless pipeline ingests DICOM, segments the aorta, iliacs, kidneys
+  and liver with TotalSegmentator (or a learned or externally supplied
+  label map), detects the renal, celiac and superior mesenteric
+  branches, extends the iliacs into the common femoral arteries and
+  repairs connectivity, places anatomic auto-seeds without user clicks,
+  builds a bifurcated centerline (VMTK Voronoi/fast-marching when
+  installed, a pure-MATLAB skeleton-graph fallback otherwise), derives
+  contrast-lumen sizing measurements (proximal neck diameter, length
+  from the lowest renal ostium, and angulation; iliac diameters; peak
+  aneurysm diameter), and matches them against the instructions-for-use
+  criteria of seven catalogued stent grafts. No device is recommended
+  when quality control fails. Each segmentation is checked by a
+  six-block completeness audit (required vessels, visceral branches,
+  vessel sizes, proximal extent, per-side continuity, centerline
+  curvature), and the iliac-to-femoral tracking is checked by twelve
+  SE(3) anatomic-plausibility rules (five per-centerline, seven
+  cross-vessel) whose thresholds were calibrated against the 99th
+  percentile of the AAA-100 reference cohort (Zenodo 10932957). A
+  MATLAB GUI exposes the same pipeline with operator review at each
+  step. Measurements have not yet been validated against a reference
+  workstation. Research use only; not a medical device.
 keywords:
   - EVAR
   - TEVAR
@@ -38,8 +44,8 @@ keywords:
   - MATLAB
   - open source
 license: MIT
-version: "1.5.0"
-date-released: "2026-06-15"
+version: "1.6.0"
+date-released: "2026-09-29"
 references:
   - type: article
     authors:
@@ -87,6 +93,8 @@ references:
     volume: "67"
     issue: "1"
     start: 2
+    end: 77
+    doi: "10.1016/j.jvs.2017.10.044"
     notes: "Source for the IFU criteria encoded in +ifu/devices.m"
   - type: article
     authors:
