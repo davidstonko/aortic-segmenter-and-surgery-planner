@@ -2,9 +2,9 @@
 
 ## Required
 
-- **MATLAB R2022b or newer** (R2022b introduced the `viewer3d` /
-  `volshow` API used by the 3-D volume render; on older releases the
-  GUI falls back to a 2-D MIP).
+- **MATLAB R2024a or newer.** CI (`.github/workflows/matlab-smoke.yml`)
+  tests R2024a and R2024b; development is on R2025b. Older releases are
+  untested.
 - **Image Processing Toolbox** — `bwskel`, `fibermetric`, `imsegfmm`,
   `bwdist`, `imerode`/`imdilate`, `regionprops3`.
 - **Image Processing Toolbox: 3D Image Volume Viewer** (only for the 3D
@@ -20,7 +20,7 @@ are missing.
 |---------------------------------------------------|-------------------------------------------------|------------------------------------------|
 | [TotalSegmentator](https://github.com/wasserth/TotalSegmentator) | Auto-segmentation of aorta + iliac arteries     | `+autoseg/`, Step 2 *Auto-segment* button |
 | [VMTK](http://www.vmtk.org)                       | Surface meshing + bifurcating centerlines       | `+vmtk_centerline/`, Step 4 VMTK option   |
-| AortaSeg24 nnU-Net (optional, Phase B)            | Multi-class lumen + aortic-zone segmentation    | `+autoseg/+aortaseg24/` (scaffold)        |
+| nnU-Net v2 / AortaSeg24 model (optional)          | `learned` segmentation backend (needs weights)  | `+autoseg/+aortaseg24/`, `opts.seg_backend='learned'` |
 
 ## AortaSeg24 backend (optional, Phase B)
 
@@ -55,9 +55,12 @@ pip install vtk scipy numpy
 MAT cache that the MATLAB loader reads. See `docs/datasets.md` for
 download instructions and `+library/+aaa100/` for the package contents.
 
-Without these tools the manual workflow still works: click-to-add
-segmentation in Step 2 and the built-in skeleton-based centerline
-algorithm in Step 4.
+Without TotalSegmentator and VMTK the manual GUI workflow is still
+available (click-to-add segmentation in Step 2, the built-in
+skeleton-based centerline in Step 4), and the headless planner can run
+from a supplied label NIfTI via `opts.seg_backend = 'external'`.
+Fully automatic planning from raw DICOM requires TotalSegmentator (or a
+trained `learned` backend).
 
 ## Hardware
 
